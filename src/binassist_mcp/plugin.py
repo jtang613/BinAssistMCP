@@ -55,10 +55,7 @@ class BinAssistMCPPlugin:
             # Register plugin commands
             self._register_commands()
             
-            # Set up file open handler for auto-startup
-            # Note: Auto-startup temporarily disabled due to notification API issues
-            # if self.config.plugin.auto_startup:
-            #     self._setup_auto_startup()
+            # Auto-startup is handled via global event registration in __init__.py
                 
             logger.info("BinAssist-MCP plugin initialized successfully")
             
@@ -154,20 +151,23 @@ class BinAssistMCPPlugin:
         except Exception as e:
             logger.error(f"Failed to register commands: {e}")
             
-    def _setup_auto_startup(self):
-        """Set up automatic server startup on file open"""
+    def handle_auto_startup(self, binary_view):
+        """Handle auto-startup when a binary is analyzed"""
         try:
-            # Register file open notification - need to create notification instance and register it properly
-            notification_handler = FileOpenNotification(self)
-            bn.BinaryView.register_notification(notification_handler)
-            logger.info("Auto-startup enabled")
-            
+            if not self.config or not self.config.plugin.auto_startup:
+                return
+                
+            # Start server if not running
+            if not self.server or not self.server.is_running():
+                logger.info("Auto-startup triggered: starting BinAssist-MCP server")
+                self._start_server_command(binary_view)
+            else:
+                # Add binary to existing server
+                self.add_binary_to_server(binary_view)
+                logger.info("Auto-startup triggered: added binary to running server")
+                
         except Exception as e:
-            logger.error(f"Failed to setup auto-startup: {e}")
-            # For now, disable auto-startup if notification registration fails
-            if self.config:
-                self.config.plugin.auto_startup = False
-                logger.info("Auto-startup disabled due to notification registration failure")
+            logger.error(f"Error in auto-startup: {e}")
             
     def _start_server_command(self, bv):
         """Start server command handler"""
@@ -327,28 +327,16 @@ class BinAssistMCPPlugin:
                 logger.error(f"Failed to add binary to server: {e}")
 
 
-class FileOpenNotification:
-    """Binary Ninja notification handler for file open events"""
+# Global plugin instance reference for callbacks
+_plugin_instance: Optional[BinAssistMCPPlugin] = None
+
+def set_plugin_instance(plugin: BinAssistMCPPlugin):
+    """Set the global plugin instance for callback access"""
+    global _plugin_instance
+    _plugin_instance = plugin
     
-    def __init__(self, plugin: BinAssistMCPPlugin):
-        self.plugin = plugin
-        
-    def file_opened(self, view):
-        """Called when a file is opened in Binary Ninja"""
-        try:
-            if not self.plugin.config or not self.plugin.config.plugin.auto_startup:
-                return
-                
-            # Start server if not running
-            if not self.plugin.server or not self.plugin.server.is_running():
-                self.plugin._start_server_command(view)
-            else:
-                # Add binary to existing server
-                self.plugin.add_binary_to_server(view)
-                
-        except Exception as e:
-            logger.error(f"Error in file open notification: {e}")
+def get_plugin_instance() -> Optional[BinAssistMCPPlugin]:
+    """Get the global plugin instance"""
+    return _plugin_instance
 
 
-# Note: Plugin instance is created in the root __init__.py file
-# This ensures proper Binary Ninja plugin loading sequence

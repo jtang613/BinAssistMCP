@@ -28,8 +28,30 @@ try:
         # The plugin will automatically register itself when imported
         plugin_instance = BinAssistMCPPlugin()
         
+        # Set global plugin instance and register auto-startup callback
+        from .src.binassist_mcp.plugin import set_plugin_instance
+        set_plugin_instance(plugin_instance)
+        
+        # Register for binary analysis completion events (for auto-startup)
+        def on_binaryview_analysis_completion(bv):
+            """Handle binary analysis completion for auto-startup"""
+            try:
+                from .src.binassist_mcp.plugin import get_plugin_instance
+                plugin = get_plugin_instance()
+                if plugin:
+                    plugin.handle_auto_startup(bv)
+            except Exception as e:
+                logger.error(f"Error in auto-startup callback: {e}")
+                bn.log_error(f"BinAssist-MCP auto-startup error: {e}")
+        
+        # Register the callback with Binary Ninja
+        bn.BinaryViewType.add_binaryview_initial_analysis_completion_event(
+            on_binaryview_analysis_completion
+        )
+        
         logger.info("BinAssist-MCP plugin loaded successfully")
         bn.log_info("BinAssist-MCP plugin loaded successfully")
+        bn.log_info("BinAssist-MCP auto-startup enabled - server will start automatically when analysis completes")
         
     except ImportError as import_err:
         logger.error(f"Failed to import BinAssist-MCP modules: {import_err}")
