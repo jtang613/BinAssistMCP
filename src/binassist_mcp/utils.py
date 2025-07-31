@@ -4,11 +4,10 @@ Utility functions for BinAssist-MCP
 This module provides common utility functions used across the project.
 """
 
-import logging
 from pathlib import Path
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+from .logging import log
 
 try:
     import binaryninja as bn
@@ -47,7 +46,7 @@ def extract_binary_name(binary_view) -> str:
                 return Path(original_filename).name
                 
     except Exception as e:
-        logger.debug(f"Failed to extract name from binary view: {e}")
+        log.log_debug(f"Failed to extract name from binary view: {e}")
         
     return "unknown"
 
@@ -124,7 +123,7 @@ def parse_address(address_str: str) -> Optional[int]:
         return int(address_str, 16)
         
     except ValueError:
-        logger.debug(f"Failed to parse address: {address_str}")
+        log.log_debug(f"Failed to parse address: {address_str}")
         return None
 
 
@@ -211,7 +210,7 @@ def validate_binary_view(binary_view) -> bool:
         return True
         
     except Exception as e:
-        logger.debug(f"Binary view validation failed: {e}")
+        log.log_debug(f"Binary view validation failed: {e}")
         return False
 
 

@@ -6,7 +6,6 @@ managing configurations, and providing STDIO transport for MCP clients.
 """
 
 import asyncio
-import logging
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -14,9 +13,8 @@ from typing import List, Optional
 import click
 
 from .config import BinAssistMCPConfig, TransportType
+from .logging import log
 from .server import BinAssistMCPServer
-
-logger = logging.getLogger(__name__)
 
 try:
     import binaryninja as bn
@@ -31,12 +29,9 @@ except ImportError:
 @click.pass_context
 def cli(ctx, debug: bool, config: Optional[Path]):
     """BinAssist-MCP: Comprehensive MCP server for Binary Ninja"""
-    # Set up logging
-    log_level = logging.DEBUG if debug else logging.INFO
-    logging.basicConfig(
-        level=log_level,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    # Logging is now handled by Binary Ninja's logger
+    # CLI debug flag preserved for compatibility
+    pass
     
     # Load configuration
     if config:

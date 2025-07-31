@@ -5,24 +5,26 @@ This module provides the Binary Ninja plugin interface with menu integration,
 settings management, and automatic server lifecycle management.
 """
 
-import logging
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+from .logging import log, disable_external_logging
+
+# Disable external library logging early to reduce ScriptingProvider messages
+disable_external_logging()
 
 try:
     import binaryninja as bn
     BINJA_AVAILABLE = True
 except ImportError:
     BINJA_AVAILABLE = False
-    logger.warning("Binary Ninja not available")
+    log.log_warn("Binary Ninja not available")
 
 if BINJA_AVAILABLE:
     try:
         from .config import BinAssistMCPConfig
         from .server import BinAssistMCPServer
     except ImportError as e:
-        logger.error(f"Failed to import BinAssist-MCP modules: {e}")
+        log.log_error(f"Failed to import BinAssist-MCP modules: {e}")
         BINJA_AVAILABLE = False
 
 
@@ -57,10 +59,10 @@ class BinAssistMCPPlugin:
             
             # Auto-startup is handled via global event registration in __init__.py
                 
-            logger.info("BinAssist-MCP plugin initialized successfully")
+            log.log_info("BinAssist-MCP plugin initialized successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize plugin: {e}")
+            log.log_error(f"Failed to initialize plugin: {e}")
             if self.config and self.config.plugin.show_notifications:
                 bn.log_error(f"BinAssist-MCP initialization failed: {e}")
                 
@@ -103,10 +105,10 @@ class BinAssistMCPPlugin:
                 '{"description": "Enable automatic binary analysis", "title": "Auto Analysis", "default": true, "type": "boolean"}'
             )
             
-            logger.info("Registered BinAssist-MCP settings")
+            log.log_info("Registered BinAssist-MCP settings")
             
         except Exception as e:
-            logger.error(f"Failed to register settings: {e}")
+            log.log_error(f"Failed to register settings: {e}")
             
     def _register_commands(self):
         """Register plugin menu commands"""
@@ -146,10 +148,10 @@ class BinAssistMCPPlugin:
                 self._open_settings_command
             )
             
-            logger.info("Registered BinAssist-MCP menu commands")
+            log.log_info("Registered BinAssist-MCP menu commands")
             
         except Exception as e:
-            logger.error(f"Failed to register commands: {e}")
+            log.log_error(f"Failed to register commands: {e}")
             
     def handle_auto_startup(self, binary_view):
         """Handle auto-startup when a binary is analyzed"""
@@ -159,15 +161,15 @@ class BinAssistMCPPlugin:
                 
             # Start server if not running
             if not self.server or not self.server.is_running():
-                logger.info("Auto-startup triggered: starting BinAssist-MCP server")
+                log.log_info("Auto-startup triggered: starting BinAssist-MCP server")
                 self._start_server_command(binary_view)
             else:
                 # Add binary to existing server
                 self.add_binary_to_server(binary_view)
-                logger.info("Auto-startup triggered: added binary to running server")
+                log.log_info("Auto-startup triggered: added binary to running server")
                 
         except Exception as e:
-            logger.error(f"Error in auto-startup: {e}")
+            log.log_error(f"Error in auto-startup: {e}")
             
     def _start_server_command(self, bv):
         """Start server command handler"""
@@ -234,12 +236,12 @@ class BinAssistMCPPlugin:
                 
         except Exception as e:
             error_msg = f"Error starting server: {e}"
-            logger.error(error_msg)
+            log.log_error(error_msg)
             bn.log_error(error_msg)
             # Also log the full traceback for debugging
             import traceback
             traceback_msg = traceback.format_exc()
-            logger.error(f"Server startup traceback: {traceback_msg}")
+            log.log_error(f"Server startup traceback: {traceback_msg}")
             bn.log_error(f"Full error details: {traceback_msg}")
             
     def _stop_server_command(self, bv):
@@ -258,7 +260,7 @@ class BinAssistMCPPlugin:
                 
         except Exception as e:
             error_msg = f"Error stopping server: {e}"
-            logger.error(error_msg)
+            log.log_error(error_msg)
             bn.log_error(error_msg)
             
     def _restart_server_command(self, bv):
@@ -272,7 +274,7 @@ class BinAssistMCPPlugin:
             
         except Exception as e:
             error_msg = f"Error restarting server: {e}"
-            logger.error(error_msg)
+            log.log_error(error_msg)
             bn.log_error(error_msg)
             
     def _server_status_command(self, bv):
@@ -296,7 +298,7 @@ class BinAssistMCPPlugin:
                 
         except Exception as e:
             error_msg = f"Error getting server status: {e}"
-            logger.error(error_msg)
+            log.log_error(error_msg)
             bn.log_error(error_msg)
             
     def _open_settings_command(self, bv):
@@ -309,7 +311,7 @@ class BinAssistMCPPlugin:
             
         except Exception as e:
             error_msg = f"Error opening settings: {e}"
-            logger.error(error_msg)
+            log.log_error(error_msg)
             bn.log_error(error_msg)
             
     def add_binary_to_server(self, binary_view):
@@ -324,7 +326,7 @@ class BinAssistMCPPlugin:
                         bn.log_info(f"Added binary '{name}' to BinAssist-MCP server")
                         
             except Exception as e:
-                logger.error(f"Failed to add binary to server: {e}")
+                log.log_error(f"Failed to add binary to server: {e}")
 
 
 # Global plugin instance reference for callbacks

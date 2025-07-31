@@ -5,15 +5,14 @@ This module provides configuration management using Pydantic settings with
 Binary Ninja integration for persistent storage.
 """
 
-import logging
 from enum import Enum
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from pydantic_settings import BaseSettings
 
-logger = logging.getLogger(__name__)
+from .logging import log
 
 
 class TransportType(str, Enum):
@@ -39,8 +38,9 @@ class ServerConfig(BaseModel):
     transport: TransportType = Field(default=TransportType.BOTH, description="Transport type")
     max_connections: int = Field(default=100, ge=1, description="Maximum concurrent connections")
     
-    @validator("host")
-    def validate_host(cls, v):
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, v: str) -> str:
         """Validate host address"""
         if not v or not isinstance(v, str):
             raise ValueError("Host must be a non-empty string")
@@ -78,25 +78,21 @@ class BinAssistMCPConfig(BaseSettings):
     # Plugin configuration
     plugin: PluginConfig = Field(default_factory=PluginConfig)
     
-    class Config:
-        env_prefix = "BINASSISTMCP_"
-        env_nested_delimiter = "__"
-        case_sensitive = False
+    model_config = ConfigDict(
+        env_prefix="BINASSISTMCP_",
+        env_nested_delimiter="__",
+        case_sensitive=False
+    )
         
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._setup_logging()
         
     def _setup_logging(self):
-        """Configure logging based on settings"""
-        logging.basicConfig(
-            level=getattr(logging, self.log_level.value),
-            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            force=True
-        )
-        
-        if self.debug:
-            logging.getLogger("binassist_mcp").setLevel(logging.DEBUG)
+        """Configure logging based on settings (now using Binary Ninja logger)"""
+        # Logging is now handled by Binary Ninja's logger
+        # Configuration preserved for reference but not used
+        pass
             
     def update_from_binja_settings(self, settings_manager=None):
         """Update configuration from Binary Ninja settings"""
@@ -105,7 +101,7 @@ class BinAssistMCPConfig(BaseSettings):
                 import binaryninja as bn
                 settings_manager = bn.Settings()
             except ImportError:
-                logger.warning("Binary Ninja not available, using default settings")
+                log.log_warn("Binary Ninja not available, using default settings")
                 return
                 
         try:
@@ -119,7 +115,7 @@ class BinAssistMCPConfig(BaseSettings):
                 try:
                     self.server.transport = TransportType(transport_str)
                 except ValueError:
-                    logger.warning(f"Invalid transport type: {transport_str}")
+                    log.log_warn(f"Invalid transport type: {transport_str}")
                     
             # Plugin settings
             if settings_manager.contains("binassist.plugin.auto_startup"):
@@ -133,10 +129,10 @@ class BinAssistMCPConfig(BaseSettings):
             if settings_manager.contains("binassist.binary.auto_analysis"):
                 self.binary.auto_analysis = settings_manager.get_bool("binassist.binary.auto_analysis")
                 
-            logger.info("Configuration updated from Binary Ninja settings")
+            log.log_info("Configuration updated from Binary Ninja settings")
             
         except Exception as e:
-            logger.error(f"Failed to load Binary Ninja settings: {e}")
+            log.log_error(f"Failed to load Binary Ninja settings: {e}")
             
     def save_to_binja_settings(self, settings_manager=None):
         """Save configuration to Binary Ninja settings"""
@@ -145,7 +141,7 @@ class BinAssistMCPConfig(BaseSettings):
                 import binaryninja as bn
                 settings_manager = bn.Settings()
             except ImportError:
-                logger.warning("Binary Ninja not available, cannot save settings")
+                log.log_warn("Binary Ninja not available, cannot save settings")
                 return
                 
         try:
@@ -161,10 +157,10 @@ class BinAssistMCPConfig(BaseSettings):
             settings_manager.set_integer("binassist.binary.max_binaries", self.binary.max_binaries)
             settings_manager.set_bool("binassist.binary.auto_analysis", self.binary.auto_analysis)
             
-            logger.info("Configuration saved to Binary Ninja settings")
+            log.log_info("Configuration saved to Binary Ninja settings")
             
         except Exception as e:
-            logger.error(f"Failed to save Binary Ninja settings: {e}")
+            log.log_error(f"Failed to save Binary Ninja settings: {e}")
             
     def _register_binja_settings(self, settings_manager):
         """Register settings with Binary Ninja if not already registered"""
@@ -213,7 +209,7 @@ class BinAssistMCPConfig(BaseSettings):
                 )
                 
         except Exception as e:
-            logger.error(f"Failed to register Binary Ninja settings: {e}")
+            log.log_error(f"Failed to register Binary Ninja settings: {e}")
             
     def get_server_url(self) -> str:
         """Get the server URL for SSE connections"""
@@ -264,6 +260,6 @@ def load_config_from_file(config_path: Optional[Path] = None) -> BinAssistMCPCon
                 config_data = json.load(f)
             return BinAssistMCPConfig(**config_data)
         except Exception as e:
-            logger.error(f"Failed to load config from {config_path}: {e}")
+            log.log_error(f"Failed to load config from {config_path}: {e}")
             
     return create_default_config()

@@ -5,19 +5,18 @@ This module provides all the Binary Ninja integration tools.
 """
 
 import functools
-import logging
 import re
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from .logging import log
 
 try:
     import binaryninja as bn
     BINJA_AVAILABLE = True
 except ImportError:
     BINJA_AVAILABLE = False
-    logger.warning("Binary Ninja not available")
+    log.log_warn("Binary Ninja not available")
 
 
 def handle_exceptions(func):
@@ -27,7 +26,7 @@ def handle_exceptions(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logger.error(f"Error in {func.__name__}: {str(e)}")
+            log.log_error(f"Error in {func.__name__}: {str(e)}")
             raise
     return wrapper
 
@@ -392,7 +391,7 @@ class BinAssistMCPTools:
             return line
             
         except Exception as e:
-            logger.debug(f"Error annotating instruction at {hex(addr)}: {e}")
+            log.log_debug(f"Error annotating instruction at {hex(addr)}: {e}")
             return f"0x{addr:08x}  {hex_bytes} ; [Error: {str(e)}]"
             
     # Information retrieval tools

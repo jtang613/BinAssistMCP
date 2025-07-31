@@ -16,6 +16,13 @@ __version__ = "1.0.0"
 __author__ = "BinAssist Team"
 __description__ = "Comprehensive MCP server for Binary Ninja reverse engineering"
 
+# Disable external library logging as early as possible to reduce ScriptingProvider messages
+try:
+    from .logging import disable_external_logging
+    disable_external_logging()
+except ImportError:
+    pass
+
 from .server import BinAssistMCPServer
 from .config import BinAssistMCPConfig
 from .tools import BinAssistMCPTools

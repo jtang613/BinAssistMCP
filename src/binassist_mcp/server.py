@@ -5,7 +5,6 @@ This module provides the main MCP server with dual transport support (SSE and ST
 and comprehensive Binary Ninja integration.
 """
 
-import logging
 from contextlib import asynccontextmanager
 from threading import Event, Thread
 from typing import AsyncIterator, List, Optional
@@ -18,16 +17,15 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from .config import BinAssistMCPConfig, TransportType
 from .context import BinAssistMCPBinaryContextManager
+from .logging import log
 from .tools import BinAssistMCPTools
-
-logger = logging.getLogger(__name__)
 
 try:
     import binaryninja as bn
     BINJA_AVAILABLE = True
 except ImportError:
     BINJA_AVAILABLE = False
-    logger.warning("Binary Ninja not available")
+    log.log_warn("Binary Ninja not available")
 
 
 @asynccontextmanager
@@ -43,15 +41,23 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryCo
         try:
             context_manager.add_binary(binary_view)
         except Exception as e:
-            logger.error(f"Failed to add initial binary: {e}")
+            log.log_error(f"Failed to add initial binary: {e}")
     
-    logger.info(f"Server started with {len(context_manager)} initial binaries")
+    log.log_info(f"Server started with {len(context_manager)} initial binaries")
     
     try:
         yield context_manager
+    except Exception as e:
+        log.log_error(f"Server lifespan error: {e}")
+        raise
     finally:
-        logger.info("Shutting down server, clearing binary context")
-        context_manager.clear()
+        try:
+            log.log_info("Shutting down server, clearing binary context")
+            context_manager.clear()
+            # Give time for async cleanup
+            await anyio.sleep(0.1)
+        except Exception as e:
+            log.log_error(f"Error during server shutdown: {e}")
 
 
 class SSEServerThread(Thread):
@@ -64,17 +70,26 @@ class SSEServerThread(Thread):
         self.shutdown_signal = Event()
         self.hypercorn_config = HypercornConfig()
         self.hypercorn_config.bind = [f"{config.server.host}:{config.server.port}"]
+        # Disable hypercorn's logging to avoid ScriptingProvider messages
+        self.hypercorn_config.access_log_format = ""
+        self.hypercorn_config.error_logger = None
+        self.hypercorn_config.access_logger = None
+        # Completely disable hypercorn logging
+        import logging
+        logging.getLogger('hypercorn').disabled = True
+        logging.getLogger('hypercorn.error').disabled = True
+        logging.getLogger('hypercorn.access').disabled = True
         
     def run(self):
         """Run the SSE server"""
         try:
-            logger.info(f"Starting SSE server on {self.config.get_sse_url()}")
-            logger.info(f"Hypercorn config: {self.hypercorn_config.bind}")
+            log.log_info(f"Starting SSE server on {self.config.get_sse_url()}")
+            log.log_info(f"Hypercorn config: {self.hypercorn_config.bind}")
             anyio.run(self._run_server, backend='trio')
         except Exception as e:
-            logger.error(f"SSE server error: {e}")
+            log.log_error(f"SSE server error: {e}")
             import traceback
-            logger.error(f"SSE server traceback: {traceback.format_exc()}")
+            log.log_error(f"SSE server traceback: {traceback.format_exc()}")
             
     async def _run_server(self):
         """Async server runner"""
@@ -85,18 +100,30 @@ class SSEServerThread(Thread):
                 shutdown_trigger=self._shutdown_trigger
             )
         except Exception as e:
-            logger.error(f"Server serve error: {e}")
+            log.log_error(f"Server serve error: {e}")
+        finally:
+            # Ensure proper cleanup
+            try:
+                await anyio.sleep(0.1)  # Allow cleanup time
+            except Exception:
+                pass
             
     async def _shutdown_trigger(self):
         """Wait for shutdown signal"""
-        logger.debug("Waiting for shutdown signal")
+        log.log_debug("Waiting for shutdown signal")
         await to_thread.run_sync(self.shutdown_signal.wait)
-        logger.info("Shutdown signal received")
+        log.log_info("Shutdown signal received")
         
     def stop(self):
         """Stop the server"""
-        logger.info("Stopping SSE server")
+        log.log_info("Stopping SSE server")
         self.shutdown_signal.set()
+        
+        # Wait for thread to finish with timeout
+        if self.is_alive():
+            self.join(timeout=2.0)
+            if self.is_alive():
+                log.log_warn("SSE server thread did not shut down cleanly")
 
 
 class BinAssistMCPServer:
@@ -114,7 +141,7 @@ class BinAssistMCPServer:
         self._initial_binaries: List = []
         self._running = False
         
-        logger.info(f"Initialized BinAssist-MCP server with config: {self.config}")
+        log.log_info(f"Initialized BinAssist-MCP server with config: {self.config}")
         
     def add_initial_binary(self, binary_view):
         """Add a binary view to be loaded on server start
@@ -123,43 +150,43 @@ class BinAssistMCPServer:
             binary_view: Binary Ninja BinaryView object
         """
         if not BINJA_AVAILABLE:
-            logger.warning("Binary Ninja not available, cannot add binary")
+            log.log_warn("Binary Ninja not available, cannot add binary")
             return
             
         self._initial_binaries.append(binary_view)
-        logger.info(f"Added initial binary (total: {len(self._initial_binaries)})")
+        log.log_info(f"Added initial binary (total: {len(self._initial_binaries)})")
         
     def create_mcp_server(self) -> FastMCP:
         """Create and configure the FastMCP server instance"""
         try:
-            logger.info("Creating FastMCP instance...")
+            log.log_info("Creating FastMCP instance...")
             mcp = FastMCP(
                 name="BinAssist-MCP",
                 version="1.0.0",
                 description="Comprehensive MCP server for Binary Ninja reverse engineering",
                 lifespan=server_lifespan
             )
-            logger.info("FastMCP instance created")
+            log.log_info("FastMCP instance created")
             
             # Store configuration and initial binaries for lifespan access
-            logger.info("Storing configuration and initial binaries...")
+            log.log_info("Storing configuration and initial binaries...")
             mcp._config = self.config
             mcp._initial_binaries = self._initial_binaries
             
-            logger.info("Registering tools...")
+            log.log_info("Registering tools...")
             self._register_tools(mcp)
-            logger.info("Tools registered successfully")
+            log.log_info("Tools registered successfully")
             
-            logger.info("Registering resources...")
+            log.log_info("Registering resources...")
             self._register_resources(mcp)
-            logger.info("Resources registered successfully")
+            log.log_info("Resources registered successfully")
             
             return mcp
             
         except Exception as e:
-            logger.error(f"Failed to create MCP server: {e}")
+            log.log_error(f"Failed to create MCP server: {e}")
             import traceback
-            logger.error(f"MCP server creation traceback: {traceback.format_exc()}")
+            log.log_error(f"MCP server creation traceback: {traceback.format_exc()}")
             raise
         
     def _register_tools(self, mcp: FastMCP):
@@ -539,7 +566,7 @@ class BinAssistMCPServer:
             tools = BinAssistMCPTools(binary_view)
             return tools.get_function_statistics()
             
-        logger.info("Registered MCP tools")
+        log.log_info("Registered MCP tools")
         
     def _register_resources(self, mcp: FastMCP):
         """Register MCP resources"""
@@ -584,7 +611,7 @@ class BinAssistMCPServer:
             tools = BinAssistMCPTools(binary_view)
             return tools.get_strings()
             
-        logger.info("Registered MCP resources")
+        log.log_info("Registered MCP resources")
         
     def start(self) -> bool:
         """Start the MCP server with configured transports
@@ -593,67 +620,67 @@ class BinAssistMCPServer:
             True if started successfully, False otherwise
         """
         if self._running:
-            logger.warning("Server is already running")
+            log.log_warn("Server is already running")
             return True
             
         try:
-            logger.info("Starting BinAssist-MCP server...")
+            log.log_info("Starting BinAssist-MCP server...")
             
             # Also log to Binary Ninja
             try:
                 import binaryninja as bn
                 bn.log_info("BinAssist-MCP: Server.start() method called")
             except Exception as bn_log_error:
-                logger.error(f"Failed to log to Binary Ninja: {bn_log_error}")
+                log.log_error(f"Failed to log to Binary Ninja: {bn_log_error}")
                 import traceback
-                logger.error(f"BN log traceback: {traceback.format_exc()}")
+                log.log_error(f"BN log traceback: {traceback.format_exc()}")
             
             # Validate configuration
-            logger.info("Validating configuration...")
+            log.log_info("Validating configuration...")
             errors = self.config.validate()
             if errors:
-                logger.error(f"Configuration errors: {errors}")
+                log.log_error(f"Configuration errors: {errors}")
                 try:
                     import binaryninja as bn
                     bn.log_error(f"BinAssist-MCP configuration errors: {errors}")
                 except Exception as bn_log_error:
-                    logger.error(f"Failed to log config errors to Binary Ninja: {bn_log_error}")
+                    log.log_error(f"Failed to log config errors to Binary Ninja: {bn_log_error}")
                     import traceback
-                    logger.error(f"BN log traceback: {traceback.format_exc()}")
+                    log.log_error(f"BN log traceback: {traceback.format_exc()}")
                 return False
-            logger.info("Configuration validation passed")
+            log.log_info("Configuration validation passed")
             
             try:
                 import binaryninja as bn
                 bn.log_info("BinAssist-MCP: Configuration validation passed")
             except Exception as bn_log_error:
-                logger.error(f"Failed to log validation success to Binary Ninja: {bn_log_error}")
+                log.log_error(f"Failed to log validation success to Binary Ninja: {bn_log_error}")
                 import traceback
-                logger.error(f"BN log traceback: {traceback.format_exc()}")
+                log.log_error(f"BN log traceback: {traceback.format_exc()}")
                 
             # Create MCP server
-            logger.info("Creating MCP server instance...")
+            log.log_info("Creating MCP server instance...")
             self.mcp_server = self.create_mcp_server()
-            logger.info("MCP server instance created successfully")
+            log.log_info("MCP server instance created successfully")
             
             # Start SSE transport if enabled
             if self.config.is_transport_enabled(TransportType.SSE):
-                logger.info("SSE transport is enabled, starting SSE server...")
+                log.log_info("SSE transport is enabled, starting SSE server...")
                 self._start_sse_server()
             else:
-                logger.info("SSE transport is disabled")
+                log.log_info("SSE transport is disabled")
                 
             self._running = True
-            logger.info(f"BinAssist-MCP server started successfully")
-            logger.info(f"Available transports: {self.config.server.transport.value}")
+            log.log_info(f"BinAssist-MCP server started successfully")
+            log.log_info(f"Available transports: {self.config.server.transport.value}")
             
             if self.config.is_transport_enabled(TransportType.SSE):
-                logger.info(f"SSE endpoint: {self.config.get_sse_url()}")
+                log.log_info(f"SSE endpoint: {self.config.get_sse_url()}")
                 
             return True
             
         except Exception as e:
-            logger.error(f"Failed to start server: {e}")
+            log.log_error(f"Failed to start server: {e}")
             # Also log to Binary Ninja if available
             try:
                 import binaryninja as bn
@@ -662,9 +689,9 @@ class BinAssistMCPServer:
                 traceback_msg = traceback.format_exc()
                 bn.log_error(f"Server startup traceback: {traceback_msg}")
             except Exception as bn_log_error:
-                logger.error(f"Failed to log startup error to Binary Ninja: {bn_log_error}")
+                log.log_error(f"Failed to log startup error to Binary Ninja: {bn_log_error}")
                 import traceback
-                logger.error(f"BN log error traceback: {traceback.format_exc()}")
+                log.log_error(f"BN log error traceback: {traceback.format_exc()}")
             self.stop()
             return False
             
@@ -675,75 +702,92 @@ class BinAssistMCPServer:
             
         try:
             # Create ASGI app for SSE transport
-            logger.info(f"Available MCP server methods: {[m for m in dir(self.mcp_server) if not m.startswith('_')]}")
+            log.log_info(f"Available MCP server methods: {[m for m in dir(self.mcp_server) if not m.startswith('_')]}")
             
             if hasattr(self.mcp_server, 'sse_app'):
-                logger.info("Using sse_app method")
+                log.log_info("Using sse_app method")
                 asgi_app = self.mcp_server.sse_app()
             elif hasattr(self.mcp_server, 'create_asgi_app'):
-                logger.info("Using create_asgi_app method")
+                log.log_info("Using create_asgi_app method")
                 asgi_app = self.mcp_server.create_asgi_app()
             elif hasattr(self.mcp_server, 'asgi'):
-                logger.info("Using asgi property")
+                log.log_info("Using asgi property")
                 asgi_app = self.mcp_server.asgi
             elif hasattr(self.mcp_server, '_asgi_app'):
-                logger.info("Using _asgi_app property")
+                log.log_info("Using _asgi_app property")
                 asgi_app = self.mcp_server._asgi_app
             elif hasattr(self.mcp_server, 'app'):
-                logger.info("Using app property")
+                log.log_info("Using app property")
                 asgi_app = self.mcp_server.app
             elif callable(self.mcp_server):
-                logger.info("MCP server is callable, using it directly as ASGI app")
+                log.log_info("MCP server is callable, using it directly as ASGI app")
                 asgi_app = self.mcp_server
             else:
                 # Let's see what attributes it actually has
                 all_attrs = [attr for attr in dir(self.mcp_server) if not attr.startswith('__')]
-                logger.error(f"MCP server attributes: {all_attrs}")
+                log.log_error(f"MCP server attributes: {all_attrs}")
                 
                 # Try to find any ASGI-like method
                 asgi_methods = [attr for attr in all_attrs if 'asgi' in attr.lower() or 'app' in attr.lower()]
-                logger.error(f"Potential ASGI methods: {asgi_methods}")
+                log.log_error(f"Potential ASGI methods: {asgi_methods}")
                 
                 raise RuntimeError("Cannot create ASGI app for SSE transport")
-            logger.info(f"Created ASGI app: {asgi_app}")
+            log.log_info(f"Created ASGI app: {asgi_app}")
             
             self.sse_thread = SSEServerThread(asgi_app, self.config)
-            logger.info(f"Created SSE server thread for {self.config.server.host}:{self.config.server.port}")
+            log.log_info(f"Created SSE server thread for {self.config.server.host}:{self.config.server.port}")
             
             self.sse_thread.start()
-            logger.info("SSE server thread started")
+            log.log_info("SSE server thread started")
             
             # Give the thread a moment to start
             import time
             time.sleep(0.1)
             
             if self.sse_thread.is_alive():
-                logger.info("SSE server thread is running")
+                log.log_info("SSE server thread is running")
             else:
-                logger.error("SSE server thread failed to start")
+                log.log_error("SSE server thread failed to start")
                 
         except Exception as e:
-            logger.error(f"Failed to start SSE server: {e}")
+            log.log_error(f"Failed to start SSE server: {e}")
             raise
         
     def stop(self):
         """Stop the MCP server"""
         if not self._running:
-            logger.warning("Server is not running")
+            log.log_warn("Server is not running")
             return
             
-        logger.info("Stopping BinAssist-MCP server")
+        log.log_info("Stopping BinAssist-MCP server")
         
-        # Stop SSE server
-        if self.sse_thread:
-            self.sse_thread.stop()
-            self.sse_thread.join(timeout=5.0)
-            self.sse_thread = None
-            
-        self.mcp_server = None
-        self._running = False
-        
-        logger.info("BinAssist-MCP server stopped")
+        try:
+            # Stop SSE server
+            if self.sse_thread:
+                log.log_info("Stopping SSE server thread")
+                self.sse_thread.stop()
+                
+                # Wait for thread to finish
+                if self.sse_thread.is_alive():
+                    self.sse_thread.join(timeout=5.0)
+                    
+                if self.sse_thread.is_alive():
+                    log.log_warn("SSE server thread did not stop within timeout")
+                else:
+                    log.log_info("SSE server thread stopped successfully")
+                    
+                self.sse_thread = None
+                
+            # Clear MCP server reference
+            if self.mcp_server:
+                log.log_info("Clearing MCP server reference")
+                self.mcp_server = None
+                
+        except Exception as e:
+            log.log_error(f"Error during server shutdown: {e}")
+        finally:
+            self._running = False
+            log.log_info("BinAssist-MCP server stopped")
         
     def is_running(self) -> bool:
         """Check if the server is running"""

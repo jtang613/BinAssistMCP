@@ -5,19 +5,18 @@ This module provides context management for multiple Binary Ninja BinaryViews
 with automatic name deduplication and lifecycle management.
 """
 
-import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from .logging import log
 
 try:
     import binaryninja as bn
     BINJA_AVAILABLE = True
 except ImportError:
     BINJA_AVAILABLE = False
-    logger.warning("Binary Ninja not available")
+    log.log_warn("Binary Ninja not available")
 
 
 @dataclass
@@ -84,7 +83,7 @@ class BinAssistMCPBinaryContextManager:
         )
         
         self._binaries[unique_name] = binary_info
-        logger.info(f"Added binary '{unique_name}' to context (total: {len(self._binaries)})")
+        log.log_info(f"Added binary '{unique_name}' to context (total: {len(self._binaries)})")
         
         return unique_name
         
@@ -108,7 +107,7 @@ class BinAssistMCPBinaryContextManager:
         
         # Verify the binary view is still valid
         if not self._is_binary_valid(binary_info.view):
-            logger.warning(f"Binary '{name}' is no longer valid, removing from context")
+            log.log_warn(f"Binary '{name}' is no longer valid, removing from context")
             del self._binaries[name]
             raise KeyError(f"Binary '{name}' is no longer valid")
             
@@ -159,7 +158,7 @@ class BinAssistMCPBinaryContextManager:
         """
         if name in self._binaries:
             del self._binaries[name]
-            logger.info(f"Removed binary '{name}' from context")
+            log.log_info(f"Removed binary '{name}' from context")
             return True
         return False
         
@@ -168,7 +167,7 @@ class BinAssistMCPBinaryContextManager:
         count = len(self._binaries)
         self._binaries.clear()
         self._name_counter.clear()
-        logger.info(f"Cleared {count} binaries from context")
+        log.log_info(f"Cleared {count} binaries from context")
         
     def update_analysis_status(self, name: str):
         """Update the analysis status for a binary
@@ -180,7 +179,7 @@ class BinAssistMCPBinaryContextManager:
             binary_info = self._binaries[name]
             if binary_info.view:
                 binary_info.analysis_complete = self._is_analysis_complete(binary_info.view)
-                logger.debug(f"Updated analysis status for '{name}': {binary_info.analysis_complete}")
+                log.log_debug(f"Updated analysis status for '{name}': {binary_info.analysis_complete}")
                 
     def _extract_name(self, binary_view: object) -> str:
         """Extract name from a BinaryView"""
@@ -197,7 +196,7 @@ class BinAssistMCPBinaryContextManager:
                 return binary_view.name
                 
         except Exception as e:
-            logger.warning(f"Failed to extract name from binary view: {e}")
+            log.log_warn(f"Failed to extract name from binary view: {e}")
             
         return "unknown"
         
@@ -245,7 +244,7 @@ class BinAssistMCPBinaryContextManager:
                 if filename:
                     return Path(filename)
         except Exception as e:
-            logger.debug(f"Failed to get file path: {e}")
+            log.log_debug(f"Failed to get file path: {e}")
             
         return None
         
@@ -264,7 +263,7 @@ class BinAssistMCPBinaryContextManager:
                 return len(list(binary_view.functions)) > 0
                 
         except Exception as e:
-            logger.debug(f"Failed to check analysis status: {e}")
+            log.log_debug(f"Failed to check analysis status: {e}")
             
         return False
         
@@ -279,7 +278,7 @@ class BinAssistMCPBinaryContextManager:
                 _ = binary_view.file
                 return True
         except Exception as e:
-            logger.debug(f"Binary view validation failed: {e}")
+            log.log_debug(f"Binary view validation failed: {e}")
             
         return False
         
@@ -298,7 +297,7 @@ class BinAssistMCPBinaryContextManager:
                 oldest_name = name
                 
         if oldest_name:
-            logger.info(f"Evicting oldest binary '{oldest_name}' to make room")
+            log.log_info(f"Evicting oldest binary '{oldest_name}' to make room")
             del self._binaries[oldest_name]
             
     def __len__(self) -> int:
