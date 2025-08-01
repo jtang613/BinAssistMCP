@@ -106,28 +106,28 @@ class BinAssistMCPConfig(BaseSettings):
                 
         try:
             # Server settings
-            if settings_manager.contains("binassist.server.host"):
-                self.server.host = settings_manager.get_string("binassist.server.host")
-            if settings_manager.contains("binassist.server.port"):
-                self.server.port = settings_manager.get_integer("binassist.server.port")
-            if settings_manager.contains("binassist.server.transport"):
-                transport_str = settings_manager.get_string("binassist.server.transport")
+            if settings_manager.contains("binassistmcp.server.host"):
+                self.server.host = settings_manager.get_string("binassistmcp.server.host")
+            if settings_manager.contains("binassistmcp.server.port"):
+                self.server.port = settings_manager.get_integer("binassistmcp.server.port")
+            if settings_manager.contains("binassistmcp.server.transport"):
+                transport_str = settings_manager.get_string("binassistmcp.server.transport")
                 try:
                     self.server.transport = TransportType(transport_str)
                 except ValueError:
                     log.log_warn(f"Invalid transport type: {transport_str}")
                     
             # Plugin settings
-            if settings_manager.contains("binassist.plugin.auto_startup"):
-                self.plugin.auto_startup = settings_manager.get_bool("binassist.plugin.auto_startup")
-            if settings_manager.contains("binassist.plugin.show_notifications"):
-                self.plugin.show_notifications = settings_manager.get_bool("binassist.plugin.show_notifications")
+            if settings_manager.contains("binassistmcp.plugin.auto_startup"):
+                self.plugin.auto_startup = settings_manager.get_bool("binassistmcp.plugin.auto_startup")
+            if settings_manager.contains("binassistmcp.plugin.show_notifications"):
+                self.plugin.show_notifications = settings_manager.get_bool("binassistmcp.plugin.show_notifications")
                 
             # Binary settings
-            if settings_manager.contains("binassist.binary.max_binaries"):
-                self.binary.max_binaries = settings_manager.get_integer("binassist.binary.max_binaries")
-            if settings_manager.contains("binassist.binary.auto_analysis"):
-                self.binary.auto_analysis = settings_manager.get_bool("binassist.binary.auto_analysis")
+            if settings_manager.contains("binassistmcp.binary.max_binaries"):
+                self.binary.max_binaries = settings_manager.get_integer("binassistmcp.binary.max_binaries")
+            if settings_manager.contains("binassistmcp.binary.auto_analysis"):
+                self.binary.auto_analysis = settings_manager.get_bool("binassistmcp.binary.auto_analysis")
                 
             log.log_info("Configuration updated from Binary Ninja settings")
             
@@ -149,13 +149,13 @@ class BinAssistMCPConfig(BaseSettings):
             self._register_binja_settings(settings_manager)
             
             # Save current values
-            settings_manager.set_string("binassist.server.host", self.server.host)
-            settings_manager.set_integer("binassist.server.port", self.server.port)
-            settings_manager.set_string("binassist.server.transport", self.server.transport.value)
-            settings_manager.set_bool("binassist.plugin.auto_startup", self.plugin.auto_startup)
-            settings_manager.set_bool("binassist.plugin.show_notifications", self.plugin.show_notifications)
-            settings_manager.set_integer("binassist.binary.max_binaries", self.binary.max_binaries)
-            settings_manager.set_bool("binassist.binary.auto_analysis", self.binary.auto_analysis)
+            settings_manager.set_string("binassistmcp.server.host", self.server.host)
+            settings_manager.set_integer("binassistmcp.server.port", self.server.port)
+            settings_manager.set_string("binassistmcp.server.transport", self.server.transport.value)
+            settings_manager.set_bool("binassistmcp.plugin.auto_startup", self.plugin.auto_startup)
+            settings_manager.set_bool("binassistmcp.plugin.show_notifications", self.plugin.show_notifications)
+            settings_manager.set_integer("binassistmcp.binary.max_binaries", self.binary.max_binaries)
+            settings_manager.set_bool("binassistmcp.binary.auto_analysis", self.binary.auto_analysis)
             
             log.log_info("Configuration saved to Binary Ninja settings")
             
@@ -168,43 +168,43 @@ class BinAssistMCPConfig(BaseSettings):
             import binaryninja as bn
             
             # Server settings
-            if not settings_manager.contains("binassist.server.host"):
+            if not settings_manager.contains("binassistmcp.server.host"):
                 settings_manager.register_setting(
-                    "binassist.server.host",
+                    "binassistmcp.server.host",
                     '{"description": "BinAssist-MCP server host address", "title": "Server Host", "default": "localhost", "type": "string"}'
                 )
-            if not settings_manager.contains("binassist.server.port"):
+            if not settings_manager.contains("binassistmcp.server.port"):
                 settings_manager.register_setting(
-                    "binassist.server.port", 
+                    "binassistmcp.server.port", 
                     '{"description": "BinAssist-MCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
                 )
-            if not settings_manager.contains("binassist.server.transport"):
+            if not settings_manager.contains("binassistmcp.server.transport"):
                 settings_manager.register_setting(
-                    "binassist.server.transport",
+                    "binassistmcp.server.transport",
                     '{"description": "MCP transport type", "title": "Transport Type", "default": "both", "type": "string", "enum": ["sse", "stdio", "both"]}'
                 )
                 
             # Plugin settings
-            if not settings_manager.contains("binassist.plugin.auto_startup"):
+            if not settings_manager.contains("binassistmcp.plugin.auto_startup"):
                 settings_manager.register_setting(
-                    "binassist.plugin.auto_startup",
+                    "binassistmcp.plugin.auto_startup",
                     '{"description": "Automatically start server when Binary Ninja loads a file", "title": "Auto Startup", "default": true, "type": "boolean"}'
                 )
-            if not settings_manager.contains("binassist.plugin.show_notifications"):
+            if not settings_manager.contains("binassistmcp.plugin.show_notifications"):
                 settings_manager.register_setting(
-                    "binassist.plugin.show_notifications",
+                    "binassistmcp.plugin.show_notifications",
                     '{"description": "Show status notifications", "title": "Show Notifications", "default": true, "type": "boolean"}'
                 )
                 
             # Binary settings
-            if not settings_manager.contains("binassist.binary.max_binaries"):
+            if not settings_manager.contains("binassistmcp.binary.max_binaries"):
                 settings_manager.register_setting(
-                    "binassist.binary.max_binaries",
+                    "binassistmcp.binary.max_binaries",
                     '{"description": "Maximum number of concurrent binaries", "title": "Max Binaries", "default": 10, "type": "number", "minValue": 1, "maxValue": 50}'
                 )
-            if not settings_manager.contains("binassist.binary.auto_analysis"):
+            if not settings_manager.contains("binassistmcp.binary.auto_analysis"):
                 settings_manager.register_setting(
-                    "binassist.binary.auto_analysis",
+                    "binassistmcp.binary.auto_analysis",
                     '{"description": "Enable automatic binary analysis", "title": "Auto Analysis", "default": true, "type": "boolean"}'
                 )
                 

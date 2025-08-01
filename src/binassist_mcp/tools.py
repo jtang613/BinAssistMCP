@@ -1001,7 +1001,7 @@ class BinAssistMCPTools:
         for param in func.parameter_vars:
             variables.append({
                 "name": param.name,
-                "type": str(func.get_variable_type(param)) if func.get_variable_type(param) else "unknown",
+                "type": self._get_variable_type_safe(func, param),
                 "category": "parameter",
                 "storage": str(param.storage),
                 "identifier": str(param.identifier)
@@ -1012,7 +1012,7 @@ class BinAssistMCPTools:
             if var not in func.parameter_vars:
                 variables.append({
                     "name": var.name,
-                    "type": str(func.get_variable_type(var)) if func.get_variable_type(var) else "unknown", 
+                    "type": self._get_variable_type_safe(func, var), 
                     "category": "local",
                     "storage": str(var.storage),
                     "identifier": str(var.identifier)
@@ -1365,7 +1365,7 @@ class BinAssistMCPTools:
             "address": hex(func.start),
             "size": func.total_bytes,
             "basic_block_count": len(list(func.basic_blocks)),
-            "instruction_count": sum(len(list(bb.instructions)) for bb in func.basic_blocks),
+            "instruction_count": sum(len(bb) for bb in func.basic_blocks),
             "parameter_count": len(func.parameter_vars),
             "local_variable_count": len(func.vars) - len(func.parameter_vars),
             "complexity": {
@@ -1401,7 +1401,7 @@ class BinAssistMCPTools:
             "parameters": [
                 {
                     "name": param.name,
-                    "type": str(func.get_variable_type(param)) if func.get_variable_type(param) else "unknown"
+                    "type": self._get_variable_type_safe(func, param)
                 }
                 for param in func.parameter_vars
             ]
@@ -1677,3 +1677,148 @@ class BinAssistMCPTools:
                 for func in sorted(self.bv.functions, key=lambda f: self._calculate_cyclomatic_complexity(f), reverse=True)[:10]
             ]
         }
+        
+    @handle_exceptions
+    @require_binja
+    def get_current_address(self) -> Dict[str, Any]:
+        """Get the current address/offset in the binary view
+        
+        Returns:
+            Dictionary containing current address information
+        """
+        if not hasattr(self.bv, 'offset'):
+            # Fallback: try to get the entry point or first function
+            if self.bv.entry_points:
+                current_addr = self.bv.entry_points[0]
+            elif self.bv.functions:
+                current_addr = next(iter(self.bv.functions)).start
+            else:
+                current_addr = self.bv.start
+            
+            return {
+                "address": hex(current_addr),
+                "decimal": current_addr,
+                "note": "No current offset available, showing entry point or start address",
+                "has_current_offset": False
+            }
+        
+        current_addr = self.bv.offset
+        
+        # Get additional context about this address
+        result = {
+            "address": hex(current_addr),
+            "decimal": current_addr,
+            "has_current_offset": True
+        }
+        
+        # Check if address is in a function
+        functions = self.bv.get_functions_containing(current_addr)
+        if functions:
+            func = functions[0]  # Take the first function if multiple
+            result["in_function"] = {
+                "name": func.name,
+                "start": hex(func.start),
+                "end": hex(func.start + func.total_bytes),
+                "offset_in_function": current_addr - func.start
+            }
+        else:
+            result["in_function"] = None
+            
+        # Check if address has a symbol
+        symbol = self.bv.get_symbol_at(current_addr)
+        if symbol:
+            result["symbol"] = {
+                "name": symbol.name,
+                "type": str(symbol.type)
+            }
+        else:
+            result["symbol"] = None
+            
+        # Check if it's in a segment
+        for segment in self.bv.segments:
+            if segment.start <= current_addr < segment.end:
+                result["segment"] = {
+                    "start": hex(segment.start),
+                    "end": hex(segment.end),
+                    "readable": segment.readable,
+                    "writable": segment.writable,
+                    "executable": segment.executable
+                }
+                break
+        else:
+            result["segment"] = None
+            
+        # Try to get disassembly at current address
+        try:
+            disasm = self.bv.get_disassembly(current_addr)
+            if disasm:
+                result["disassembly"] = disasm
+        except:
+            result["disassembly"] = None
+            
+        return result
+        
+    @handle_exceptions
+    @require_binja
+    def get_current_function(self) -> Dict[str, Any]:
+        """Get the current function (function containing the current address)
+        
+        Returns:
+            Dictionary containing current function name and address
+        """
+        if not hasattr(self.bv, 'offset'):
+            return {
+                "error": "No current offset available",
+                "has_current_offset": False
+            }
+            
+        current_addr = self.bv.offset
+        
+        # Get functions containing the current address
+        functions = self.bv.get_functions_containing(current_addr)
+        
+        if not functions:
+            return {
+                "current_address": hex(current_addr),
+                "function": None,
+                "message": "Current address is not within any function"
+            }
+            
+        # If multiple functions contain this address, take the first one
+        func = functions[0]
+        
+        result = {
+            "current_address": hex(current_addr),
+            "function": {
+                "name": func.name,
+                "address": hex(func.start)
+            }
+        }
+        
+        # If there are multiple functions at this address, note them
+        if len(functions) > 1:
+            result["note"] = f"Multiple functions at this address ({len(functions)} total)"
+            
+        return result
+        
+    def _get_variable_type_safe(self, func, var) -> str:
+        """Safely get variable type with fallbacks for API compatibility
+        
+        Args:
+            func: Function object
+            var: Variable object
+            
+        Returns:
+            String representation of variable type or 'unknown'
+        """
+        try:
+            if hasattr(func, 'get_variable_type'):
+                var_type = func.get_variable_type(var)
+                return str(var_type) if var_type else "unknown"
+            elif hasattr(var, 'type') and var.type:
+                return str(var.type)
+            else:
+                return "unknown"
+        except Exception as e:
+            log.log_debug(f"Failed to get variable type: {e}")
+            return "unknown"

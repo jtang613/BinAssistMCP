@@ -566,6 +566,23 @@ class BinAssistMCPServer:
             tools = BinAssistMCPTools(binary_view)
             return tools.get_function_statistics()
             
+        # Current context tools
+        @mcp.tool()
+        def get_current_address(filename: str, ctx: Context) -> dict:
+            """Get the current address/offset in the binary view"""
+            context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
+            binary_view = context_manager.get_binary(filename)
+            tools = BinAssistMCPTools(binary_view)
+            return tools.get_current_address()
+            
+        @mcp.tool()
+        def get_current_function(filename: str, ctx: Context) -> dict:
+            """Get the current function (function containing the current address)"""
+            context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
+            binary_view = context_manager.get_binary(filename)
+            tools = BinAssistMCPTools(binary_view)
+            return tools.get_current_function()
+            
         log.log_info("Registered MCP tools")
         
     def _register_resources(self, mcp: FastMCP):

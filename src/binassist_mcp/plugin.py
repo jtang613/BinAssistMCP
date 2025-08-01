@@ -73,35 +73,35 @@ class BinAssistMCPPlugin:
             
             # Server settings
             settings.register_setting(
-                "binassist.server.host",
+                "binassistmcp.server.host",
                 '{"description": "BinAssist-MCP server host address", "title": "Server Host", "default": "localhost", "type": "string"}'
             )
             settings.register_setting(
-                "binassist.server.port",
+                "binassistmcp.server.port",
                 '{"description": "BinAssist-MCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
             )
             settings.register_setting(
-                "binassist.server.transport",
+                "binassistmcp.server.transport",
                 '{"description": "MCP transport type", "title": "Transport Type", "default": "both", "type": "string", "enum": ["sse", "stdio", "both"]}'
             )
             
             # Plugin settings
             settings.register_setting(
-                "binassist.plugin.auto_startup",
+                "binassistmcp.plugin.auto_startup",
                 '{"description": "Automatically start server when Binary Ninja loads a file", "title": "Auto Startup", "default": true, "type": "boolean"}'
             )
             settings.register_setting(
-                "binassist.plugin.show_notifications",
+                "binassistmcp.plugin.show_notifications",
                 '{"description": "Show status notifications", "title": "Show Notifications", "default": true, "type": "boolean"}'
             )
             
             # Binary analysis settings
             settings.register_setting(
-                "binassist.binary.max_binaries",
+                "binassistmcp.binary.max_binaries",
                 '{"description": "Maximum number of concurrent binaries", "title": "Max Binaries", "default": 10, "type": "number", "minValue": 1, "maxValue": 50}'
             )
             settings.register_setting(
-                "binassist.binary.auto_analysis",
+                "binassistmcp.binary.auto_analysis",
                 '{"description": "Enable automatic binary analysis", "title": "Auto Analysis", "default": true, "type": "boolean"}'
             )
             
