@@ -1,338 +1,274 @@
-# BinAssist-MCP
+# BinAssistMCP
 
-<div align="center">
+> Comprehensive Model Context Protocol (MCP) server for Binary Ninja with AI-powered reverse engineering capabilities
 
-**Comprehensive MCP Server for Binary Ninja Reverse Engineering**
+## Summary
 
-[![Binary Ninja](https://img.shields.io/badge/Binary%20Ninja-4000%2B-orange.svg)](https://binary.ninja)
-
-*Seamless integration between Binary Ninja and LLM clients through the Model Context Protocol*
-
-</div>
-
-## Overview
-
-BinAssist-MCP is a comprehensive Model Context Protocol (MCP) server that exposes Binary Ninja's powerful reverse engineering capabilities to LLM clients like Claude Desktop. It provides dual transport support (SSE and STDIO), extensive binary analysis tools, and seamless multi-binary session management.
+BinAssistMCP is a powerful bridge between Binary Ninja and Large Language Models (LLMs) like Claude, providing comprehensive reverse engineering tools through the Model Context Protocol (MCP). It enables AI-assisted binary analysis by exposing Binary Ninja's advanced capabilities through both Server-Sent Events (SSE) and STDIO transports.
 
 ### Key Features
 
-- **Dual Transport Support**: Both SSE (Server-Sent Events) and STDIO transports
-- **Comprehensive Tool Set**: 35+ reverse engineering tools combining the best from existing implementations
-- **Advanced Architecture**: FastMCP-based server with intelligent context management
-- **Configurable Settings**: Flexible configuration with Binary Ninja integration
-- **Multi-Binary Support**: Handle multiple binaries simultaneously with automatic lifecycle management
-- **Plugin Integration**: Native Binary Ninja plugin with menu integration and auto-startup
-- **CLI Interface**: Full command-line interface for standalone operation
+- **Dual Transport Support**: Both SSE (web-based) and STDIO (command-line) transports
+- **40+ Analysis Tools**: Complete Binary Ninja API wrapper with advanced functionality
+- **Multi-Binary Sessions**: Concurrent analysis of multiple binaries with intelligent context management
+- **Smart Symbol Management**: Advanced function searching, renaming, and type management
+- **Auto-Integration**: Seamless Binary Ninja plugin with automatic startup capabilities
+- **Flexible Configuration**: Comprehensive settings management through Binary Ninja's interface
+- **AI-Ready**: Optimized for LLM integration with structured tool responses
+
+### Use Cases
+
+- **AI-Assisted Reverse Engineering**: Leverage LLMs for intelligent code analysis and documentation
+- **Automated Binary Analysis**: Script complex analysis workflows with natural language
+- **Research and Education**: Teach reverse engineering concepts with AI guidance
+- **Security Analysis**: Accelerate vulnerability research and malware analysis
+- **Code Understanding**: Generate comprehensive documentation and explanations
+
+## Tool Details
+
+BinAssistMCP provides over 40 specialized tools organized into functional categories:
+
+### Binary Management
+- **`list_binaries`** - List all loaded binary files
+- **`get_binary_status`** - Check analysis status and metadata
+- **`update_analysis_and_wait`** - Force analysis update and wait for completion
+
+### Code Analysis & Decompilation
+- **`decompile_function`** - Generate high-level decompiled code
+- **`get_function_pseudo_c`** - Extract pseudo-C representation
+- **`get_function_high_level_il`** - Access High-Level Intermediate Language
+- **`get_function_medium_level_il`** - Access Medium-Level Intermediate Language
+- **`get_disassembly`** - Retrieve assembly code with annotations
+
+### Information Retrieval
+- **`get_functions`** - List all functions with metadata
+- **`search_functions_by_name`** - Find functions by name patterns
+- **`get_functions_advanced`** - Advanced filtering (size, complexity, parameters)
+- **`search_functions_advanced`** - Multi-target searching (name, comments, calls, variables)
+- **`get_function_statistics`** - Comprehensive binary statistics
+- **`get_imports`** - Import table analysis grouped by module
+- **`get_exports`** - Export table with symbol information
+- **`get_strings`** - String extraction with context
+- **`get_segments`** - Memory layout analysis
+- **`get_sections`** - Binary section information
+
+### Symbol & Naming Management
+- **`rename_symbol`** - Rename functions and data variables
+- **`get_cross_references`** - Find all references to/from symbols
+- **`analyze_function`** - Comprehensive function analysis
+- **`get_call_graph`** - Call relationship mapping
+
+### Documentation & Comments
+- **`set_comment`** - Add comments to specific addresses
+- **`get_comment`** - Retrieve comments at addresses
+- **`get_all_comments`** - Export all comments with context
+- **`remove_comment`** - Delete existing comments
+- **`set_function_comment`** - Add function-level documentation
+
+### Variable Management
+- **`create_variable`** - Define local variables in functions
+- **`get_variables`** - List function parameters and locals
+- **`rename_variable`** - Rename variables for clarity
+- **`set_variable_type`** - Update variable type information
+
+### Type System Management
+- **`create_type`** - Define custom types and structures
+- **`get_types`** - List all user-defined types
+- **`create_enum`** - Create enumeration types
+- **`create_typedef`** - Create type aliases
+- **`get_type_info`** - Detailed type information
+- **`get_classes`** - List classes and structures
+- **`create_class`** - Define new classes/structures
+- **`add_class_member`** - Add members to existing types
+
+### Data Analysis
+- **`create_data_var`** - Define data variables at addresses
+- **`get_data_vars`** - List all defined data variables
+- **`get_data_at_address`** - Analyze raw data with type inference
+
+### Navigation & Context
+- **`get_current_address`** - Get current cursor position
+- **`get_current_function`** - Identify function at current address
+- **`get_namespaces`** - Namespace and symbol organization
+
+### Advanced Analysis
+- **`get_triage_summary`** - Complete binary overview
+- **`get_function_statistics`** - Statistical analysis of all functions
+
+Each tool is designed for seamless integration with AI workflows, providing structured responses that LLMs can easily interpret and act upon.
 
 ## Installation
 
-### Via Binary Ninja Plugin Manager
+### Prerequisites
+
+- **Binary Ninja**: Version 4000 or higher
+- **Python**: 3.8+ (typically bundled with Binary Ninja)
+- **Platform**: Windows, macOS, or Linux
+
+### Option 1: Binary Ninja Plugin Manager (Recommended)
 
 1. Open Binary Ninja
-2. Go to `Plugins > Manage Plugins`
-3. Search for "BinAssist-MCP"
-4. Click Install
+2. Navigate to **Tools** → **Manage Plugins**
+3. Search for "BinAssistMCP"
+4. Click **Install**
+5. Restart Binary Ninja
 
-### Manual Installation
+### Option 2: Manual Installation
 
-1. Clone the repository:
+#### Step 1: Download and Extract
 ```bash
-git clone https://github.com/binassist/binassist-mcp.git
-cd BinAssist-MCP
+git clone https://github.com/jtang613/BinAssistMCP.git
+cd BinAssistMCP
 ```
 
-2. Install the package:
+#### Step 2: Install Dependencies
 ```bash
+# Install Python dependencies
 pip install -r requirements.txt
+
+# Or install individually:
+pip install anyio>=4.0.0 hypercorn>=0.16.0 mcp>=1.0.0 trio>=0.27.0 pydantic>=2.0.0 pydantic-settings>=2.0.0 click>=8.0.0
 ```
 
-3. For Binary Ninja plugin installation, copy to your plugins directory:
+#### Step 3: Copy to Plugin Directory
+
+**Windows:**
+```cmd
+copy BinAssistMCP "%APPDATA%\Binary Ninja\plugins\"
+```
+
+**macOS:**
 ```bash
-# Linux/macOS
-cp -r src/binassist_mcp ~/.binaryninja/plugins/
-
-# Windows
-copy src\binassist_mcp "%APPDATA%\Binary Ninja\plugins\"
+cp -r BinAssistMCP ~/Library/Application\ Support/Binary\ Ninja/plugins/
 ```
 
-## Quick Start
-
-### Binary Ninja Plugin
-
-1. Open Binary Ninja and load a binary file
-2. Go to `BinAssist-MCP > Start Server` (or enable auto-startup in settings)
-3. The server will start automatically and expose your binary for analysis
-
-### Standalone Server
-
+**Linux:**
 ```bash
-# Start server with a binary file
-binassist-mcp serve /path/to/binary.exe
-
-# Start server with multiple binaries
-binassist-mcp serve binary1.exe binary2.so binary3.dll
-
-# Custom host/port
-binassist-mcp serve --host 0.0.0.0 --port 9000 binary.exe
+cp -r BinAssistMCP ~/.binaryninja/plugins/
 ```
 
-### STDIO Transport for MCP Clients
+#### Step 4: Verify Installation
 
-```bash
-# For Claude Desktop or other STDIO MCP clients
-binassist-mcp stdio
+1. Restart Binary Ninja
+2. Open any binary file
+3. Check **Tools** menu for "BinAssistMCP" submenu
+4. Look for startup messages in the log panel
+
+### Configuration
+
+#### Basic Setup
+
+1. Open Binary Ninja Settings (**Edit** → **Preferences**)
+2. Navigate to the **binassistmcp** section
+3. Configure server settings:
+   - **Host**: `localhost` (default)
+   - **Port**: `9090` (default)
+   - **Transport**: `both` (SSE + STDIO)
+
+#### Advanced Configuration
+
+```python
+# Environment variables (optional)
+export BINASSISTMCP_SERVER__HOST=localhost
+export BINASSISTMCP_SERVER__PORT=9090
+export BINASSISTMCP_SERVER__TRANSPORT=both
+export BINASSISTMCP_BINARY__MAX_BINARIES=10
 ```
 
-## Configuration
+### Usage
 
-### Binary Ninja Settings
+#### Starting the Server
 
-BinAssist-MCP integrates with Binary Ninja's settings system. Configure through:
-- `Settings > Preferences > binassist.*`
+**Via Binary Ninja Menu:**
+1. **Tools** → **BinAssistMCP** → **Start Server**
+2. Check log panel for startup confirmation
+3. Note the server URL (e.g., `http://localhost:9090`)
 
-Key settings:
-- `binassist.server.host`: Server host address (default: localhost)
-- `binassist.server.port`: Server port (default: 9090)
-- `binassist.server.transport`: Transport type (sse/stdio/both)
-- `binassist.plugin.auto_startup`: Auto-start server on file open
-- `binassist.binary.max_binaries`: Maximum concurrent binaries
+**Auto-Startup (Default):**
+- Server starts automatically when Binary Ninja loads a file
+- Configurable via settings: `binassistmcp.plugin.auto_startup`
 
-### Environment Variables
+#### Connecting with Claude Desktop
 
-```bash
-export BINASSIST_SERVER__HOST=localhost
-export BINASSIST_SERVER__PORT=9090
-export BINASSIST_SERVER__TRANSPORT=both
-export BINASSIST_PLUGIN__AUTO_STARTUP=true
-```
-
-### Configuration File
-
-Create a JSON configuration file:
-```json
-{
-  "server": {
-    "host": "localhost",
-    "port": 9090,
-    "transport": "both"
-  },
-  "plugin": {
-    "auto_startup": true,
-    "show_notifications": true
-  },
-  "binary": {
-    "max_binaries": 10,
-    "auto_analysis": true
-  }
-}
-```
-
-## Available Tools
-
-BinAssist-MCP provides comprehensive reverse engineering tools across multiple categories:
-
-### Core Analysis Tools
-- `rename_symbol`: Rename functions and data variables
-- `decompile_function`: High-level decompilation 
-- `get_function_pseudo_c`: Pseudo C code generation
-- `get_function_high_level_il` / `get_function_medium_level_il`: IL representations
-- `get_disassembly`: Function and range disassembly
-- `get_assembly_function`: Annotated assembly with comments
-
-### Class & Type Management
-- `get_classes`: List all classes/structs in the binary
-- `create_class`: Create new class/struct types
-- `add_class_member`: Add members to existing classes
-- `get_namespaces`: List all namespaces and their symbols
-- `create_type`: Create custom type definitions
-- `get_types`: List all user-defined types
-- `create_enum`: Create enumeration types
-- `create_typedef`: Create type aliases
-- `get_type_info`: Get detailed type information
-
-### Data Management
-- `create_data_var`: Create data variables at addresses
-- `get_data_vars`: List all data variables
-- `get_data_at_address`: Read and interpret data at addresses
-
-### Variable Management
-- `create_variable`: Create local variables in functions
-- `get_variables`: List function parameters and local variables
-- `rename_variable`: Rename variables in functions
-- `set_variable_type`: Set/change variable types
-
-### Comment Management
-- `set_comment`: Add comments at addresses
-- `get_comment`: Get comment at specific address
-- `get_all_comments`: List all comments in the binary
-- `remove_comment`: Remove comments
-- `set_function_comment`: Set comments for entire functions
-
-### Function Analysis
-- `get_call_graph`: Generate call graphs (single function or global)
-- `analyze_function`: Comprehensive function analysis with metrics
-- `get_cross_references`: Find code/data cross-references
-- `get_functions_advanced`: Advanced function listing with filtering
-- `search_functions_advanced`: Multi-target function search
-- `get_function_statistics`: Binary-wide function statistics
-
-### Information Retrieval
-- `get_functions`: List all functions with metadata
-- `search_functions_by_name`: Search functions by substring
-- `get_imports` / `get_exports`: Symbol import/export analysis
-- `get_strings`: String analysis with metadata
-- `get_segments` / `get_sections`: Memory layout information
-- `get_triage_summary`: Comprehensive binary overview
-
-### Session Management
-- `list_binaries`: List loaded binaries
-- `get_binary_status`: Binary status and metadata
-- `update_analysis_and_wait`: Force analysis update
-
-## MCP Resources
-
-All tools are also available as URI-accessible resources:
-
-```
-binassist://{filename}/triage_summary
-binassist://{filename}/functions
-binassist://{filename}/imports
-binassist://{filename}/exports
-binassist://{filename}/strings
-binassist://{filename}/segments
-binassist://{filename}/sections
-```
-
-## Integration Examples
-
-### Claude Desktop
-
-Add to your Claude Desktop configuration (`claude_desktop_config.json`):
+Add to your Claude Desktop MCP configuration:
 
 ```json
 {
   "mcpServers": {
-    "binassist-mcp": {
-      "command": "binassist-mcp",
-      "args": ["stdio"]
+    "binassist": {
+      "command": "python",
+      "args": ["/path/to/BinAssistMCP"],
+      "env": {
+        "BINASSISTMCP_SERVER__TRANSPORT": "stdio"
+      }
     }
   }
 }
 ```
 
-### SSE Integration
+#### Using with SSE Transport
 
-For web-based MCP clients:
+Connect web-based MCP clients to:
 ```
-SSE Endpoint: http://localhost:9090/sse
-```
-
-## Development
-
-### Setup Development Environment
-
-```bash
-# Clone repository
-git clone https://github.com/binassist/binassist-mcp.git
-cd BinAssist-MCP
-
-# Install in development mode
-pip install -e ".[dev]"
-
-# Install pre-commit hooks
-pre-commit install
+http://localhost:9090/sse
 ```
 
-### Running Tests
+### Integration Examples
 
-```bash
-# Run all tests
-pytest
+#### Basic Function Analysis
+```
+Ask Claude: "Analyze the main function in the loaded binary and explain what it does"
 
-# Run with coverage
-pytest --cov=binassist_mcp
-
-# Run specific test categories
-pytest -m unit
-pytest -m integration
+Claude will use tools like:
+- get_functions() to find main
+- decompile_function() to get readable code
+- get_function_pseudo_c() for C representation
+- analyze_function() for comprehensive analysis
 ```
 
-### Code Quality
+#### Vulnerability Research
+```
+Ask Claude: "Find all functions that handle user input and check for buffer overflows"
 
-```bash
-# Format code
-ruff format
-
-# Lint code
-ruff check
-
-# Type checking
-mypy src/binassist_mcp
+Claude will use:
+- search_functions_advanced() to find input handlers
+- get_cross_references() to trace data flow
+- get_variables() to analyze buffer usage
+- set_comment() to document findings
 ```
 
-## CLI Commands
+### Troubleshooting
 
-### Server Commands
+#### Common Issues
 
-```bash
-# Start server with binaries
-binassist-mcp serve binary1.exe binary2.so
+**Server won't start:**
+- Check Binary Ninja log panel for error messages
+- Verify all dependencies are installed
+- Ensure port 9090 is not in use
 
-# STDIO transport only
-binassist-mcp stdio
+**Binary Ninja crashes:**
+- Check Python environment compatibility
+- Try reducing `max_binaries` setting
+- Restart with a single binary file
 
-# Show configuration
-binassist-mcp config
+**Tools return errors:**
+- Ensure binary analysis is complete
+- Check if Binary Ninja file is still open
+- Verify function/address exists
 
-# System check
-binassist-mcp check
-```
+#### Support
 
-### Analysis Commands
+- **Issues**: Report bugs on GitHub Issues
+- **Binary Ninja**: Check official Binary Ninja documentation
 
-```bash
-# Quick binary analysis
-binassist-mcp analyze /path/to/binary.exe
-
-# Show version
-binassist-mcp version
-```
-
-## Architecture
-
-BinAssist-MCP uses a modular architecture:
-
-- **Server Layer**: FastMCP-based server with dual transport support
-- **Context Management**: Multi-binary session handling with lifecycle management
-- **Tools Layer**: Comprehensive Binary Ninja API integration
-- **Configuration**: Pydantic-based settings with Binary Ninja integration
-- **Plugin Integration**: Native Binary Ninja plugin with UI integration
-
-## Performance
-
-- **Concurrent Binaries**: Supports up to 50 concurrent binaries (configurable)
-- **Memory Management**: Automatic cleanup and eviction policies
-- **Analysis Caching**: Optional result caching for improved performance
-- **Transport Efficiency**: Optimized SSE and STDIO transport implementations
-
-## Contributing
-
-Contributions welcome!
-
-### Development Workflow
+### Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes with tests
-4. Run the test suite and linting
+3. Make your changes following the existing code style
+4. Test with multiple binary types
 5. Submit a pull request
 
-## License
+### License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- **Binary Ninja**: For providing the comprehensive reverse engineering platform
-- **Anthropic**: For the Model Context Protocol specification
-- **FastMCP**: For the excellent MCP server framework

@@ -1,5 +1,5 @@
 """
-Binary Ninja plugin integration for BinAssist-MCP
+Binary Ninja plugin integration for BinAssistMCP
 
 This module provides the Binary Ninja plugin interface with menu integration,
 settings management, and automatic server lifecycle management.
@@ -24,12 +24,12 @@ if BINJA_AVAILABLE:
         from .config import BinAssistMCPConfig
         from .server import BinAssistMCPServer
     except ImportError as e:
-        log.log_error(f"Failed to import BinAssist-MCP modules: {e}")
+        log.log_error(f"Failed to import BinAssistMCP modules: {e}")
         BINJA_AVAILABLE = False
 
 
 class BinAssistMCPPlugin:
-    """Binary Ninja plugin for BinAssist-MCP"""
+    """Binary Ninja plugin for BinAssistMCP"""
     
     def __init__(self):
         """Initialize the plugin"""
@@ -59,12 +59,12 @@ class BinAssistMCPPlugin:
             
             # Auto-startup is handled via global event registration in __init__.py
                 
-            log.log_info("BinAssist-MCP plugin initialized successfully")
+            log.log_info("BinAssistMCP plugin initialized successfully")
             
         except Exception as e:
             log.log_error(f"Failed to initialize plugin: {e}")
             if self.config and self.config.plugin.show_notifications:
-                bn.log_error(f"BinAssist-MCP initialization failed: {e}")
+                bn.log_error(f"BinAssistMCP initialization failed: {e}")
                 
     def _register_settings(self):
         """Register plugin settings with Binary Ninja"""
@@ -74,11 +74,11 @@ class BinAssistMCPPlugin:
             # Server settings
             settings.register_setting(
                 "binassistmcp.server.host",
-                '{"description": "BinAssist-MCP server host address", "title": "Server Host", "default": "localhost", "type": "string"}'
+                '{"description": "BinAssistMCP server host address", "title": "Server Host", "default": "localhost", "type": "string"}'
             )
             settings.register_setting(
                 "binassistmcp.server.port",
-                '{"description": "BinAssist-MCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
+                '{"description": "BinAssistMCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
             )
             settings.register_setting(
                 "binassistmcp.server.transport",
@@ -105,7 +105,7 @@ class BinAssistMCPPlugin:
                 '{"description": "Enable automatic binary analysis", "title": "Auto Analysis", "default": true, "type": "boolean"}'
             )
             
-            log.log_info("Registered BinAssist-MCP settings")
+            log.log_info("Registered BinAssistMCP settings")
             
         except Exception as e:
             log.log_error(f"Failed to register settings: {e}")
@@ -115,40 +115,40 @@ class BinAssistMCPPlugin:
         try:
             # Start server command
             bn.PluginCommand.register(
-                "BinAssist-MCP\\Start Server",
-                "Start the BinAssist-MCP server",
+                "BinAssistMCP\\Start Server",
+                "Start the BinAssistMCP server",
                 self._start_server_command
             )
             
             # Stop server command
             bn.PluginCommand.register(
-                "BinAssist-MCP\\Stop Server", 
-                "Stop the BinAssist-MCP server",
+                "BinAssistMCP\\Stop Server", 
+                "Stop the BinAssistMCP server",
                 self._stop_server_command
             )
             
             # Restart server command
             bn.PluginCommand.register(
-                "BinAssist-MCP\\Restart Server",
-                "Restart the BinAssist-MCP server",
+                "BinAssistMCP\\Restart Server",
+                "Restart the BinAssistMCP server",
                 self._restart_server_command
             )
             
             # Server status command
             bn.PluginCommand.register(
-                "BinAssist-MCP\\Server Status",
-                "Show BinAssist-MCP server status",
+                "BinAssistMCP\\Server Status",
+                "Show BinAssistMCP server status",
                 self._server_status_command
             )
             
             # Configuration command
             bn.PluginCommand.register(
-                "BinAssist-MCP\\Open Settings",
-                "Open BinAssist-MCP settings",
+                "BinAssistMCP\\Open Settings",
+                "Open BinAssistMCP settings",
                 self._open_settings_command
             )
             
-            log.log_info("Registered BinAssist-MCP menu commands")
+            log.log_info("Registered BinAssistMCP menu commands")
             
         except Exception as e:
             log.log_error(f"Failed to register commands: {e}")
@@ -161,7 +161,7 @@ class BinAssistMCPPlugin:
                 
             # Start server if not running
             if not self.server or not self.server.is_running():
-                log.log_info("Auto-startup triggered: starting BinAssist-MCP server")
+                log.log_info("Auto-startup triggered: starting BinAssistMCP server")
                 self._start_server_command(binary_view)
             else:
                 # Add binary to existing server
@@ -175,7 +175,7 @@ class BinAssistMCPPlugin:
         """Start server command handler"""
         try:
             if self.server and self.server.is_running():
-                message = "BinAssist-MCP server is already running"
+                message = "BinAssistMCP server is already running"
                 if self.config.plugin.show_notifications:
                     bn.log_info(message)
                 return
@@ -187,7 +187,7 @@ class BinAssistMCPPlugin:
             bn.log_info("Configuration reloaded successfully")
             
             # Create and start server
-            bn.log_info("Creating BinAssist-MCP server instance...")
+            bn.log_info("Creating BinAssistMCP server instance...")
             self.server = BinAssistMCPServer(self.config)
             bn.log_info("Server instance created successfully")
             
@@ -196,7 +196,7 @@ class BinAssistMCPPlugin:
                 self.server.add_initial_binary(bv)
                 
             # Add detailed logging for server startup
-            bn.log_info(f"Attempting to start BinAssist-MCP server...")
+            bn.log_info(f"Attempting to start BinAssistMCP server...")
             bn.log_info(f"  Configuration: {self.config.server.host}:{self.config.server.port}")
             bn.log_info(f"  Transport: {self.config.server.transport.value}")
             
@@ -205,7 +205,7 @@ class BinAssistMCPPlugin:
             bn.log_info(f"Server.start() returned: {start_result}")
             
             if start_result:
-                message = f"BinAssist-MCP server started on {self.config.get_server_url()}"
+                message = f"BinAssistMCP server started on {self.config.get_server_url()}"
                 if self.config.plugin.show_notifications:
                     bn.log_info(message)
                     
@@ -231,7 +231,7 @@ class BinAssistMCPPlugin:
                 except Exception as e:
                     bn.log_warn(f"⚠ Could not verify server connectivity: {e}")
             else:
-                message = "Failed to start BinAssist-MCP server"
+                message = "Failed to start BinAssistMCP server"
                 bn.log_error(message)
                 
         except Exception as e:
@@ -248,13 +248,13 @@ class BinAssistMCPPlugin:
         """Stop server command handler"""
         try:
             if not self.server or not self.server.is_running():
-                message = "BinAssist-MCP server is not running"
+                message = "BinAssistMCP server is not running"
                 if self.config and self.config.plugin.show_notifications:
                     bn.log_info(message)
                 return
                 
             self.server.stop()
-            message = "BinAssist-MCP server stopped"
+            message = "BinAssistMCP server stopped"
             if self.config and self.config.plugin.show_notifications:
                 bn.log_info(message)
                 
@@ -281,11 +281,11 @@ class BinAssistMCPPlugin:
         """Server status command handler"""
         try:
             if not self.server:
-                bn.log_info("BinAssist-MCP server: Not initialized")
+                bn.log_info("BinAssistMCP server: Not initialized")
                 return
                 
             if self.server.is_running():
-                bn.log_info("BinAssist-MCP server: Running")
+                bn.log_info("BinAssistMCP server: Running")
                 if self.config:
                     bn.log_info(f"  Host: {self.config.server.host}")
                     bn.log_info(f"  Port: {self.config.server.port}")
@@ -294,7 +294,7 @@ class BinAssistMCPPlugin:
                     if self.config.is_transport_enabled(TransportType.SSE):
                         bn.log_info(f"  SSE URL: {self.config.get_sse_url()}")
             else:
-                bn.log_info("BinAssist-MCP server: Stopped")
+                bn.log_info("BinAssistMCP server: Stopped")
                 
         except Exception as e:
             error_msg = f"Error getting server status: {e}"
@@ -306,7 +306,7 @@ class BinAssistMCPPlugin:
         try:
             # This will open the Binary Ninja settings dialog
             # Users can navigate to the BinAssist section
-            bn.log_info("BinAssist-MCP settings can be found in Binary Ninja Settings under 'binassist' section")
+            bn.log_info("BinAssistMCP settings can be found in Binary Ninja Settings under 'binassist' section")
             bn.log_info("Use Ctrl+, (Cmd+, on Mac) to open settings")
             
         except Exception as e:
@@ -323,7 +323,7 @@ class BinAssistMCPPlugin:
                 if context_manager:
                     name = context_manager.add_binary(binary_view)
                     if self.config and self.config.plugin.show_notifications:
-                        bn.log_info(f"Added binary '{name}' to BinAssist-MCP server")
+                        bn.log_info(f"Added binary '{name}' to BinAssistMCP server")
                         
             except Exception as e:
                 log.log_error(f"Failed to add binary to server: {e}")

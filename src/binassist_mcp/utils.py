@@ -1,5 +1,5 @@
 """
-Utility functions for BinAssist-MCP
+Utility functions for BinAssistMCP
 
 This module provides common utility functions used across the project.
 """

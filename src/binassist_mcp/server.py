@@ -1,5 +1,5 @@
 """
-FastMCP server implementation for BinAssist-MCP
+FastMCP server implementation for BinAssistMCP
 
 This module provides the main MCP server with dual transport support (SSE and STDIO)
 and comprehensive Binary Ninja integration.
@@ -127,7 +127,7 @@ class SSEServerThread(Thread):
 
 
 class BinAssistMCPServer:
-    """Main BinAssist-MCP server class"""
+    """Main BinAssistMCP server class"""
     
     def __init__(self, config: Optional[BinAssistMCPConfig] = None):
         """Initialize the MCP server
@@ -141,7 +141,7 @@ class BinAssistMCPServer:
         self._initial_binaries: List = []
         self._running = False
         
-        log.log_info(f"Initialized BinAssist-MCP server with config: {self.config}")
+        log.log_info(f"Initialized BinAssistMCP server with config: {self.config}")
         
     def add_initial_binary(self, binary_view):
         """Add a binary view to be loaded on server start
@@ -161,7 +161,7 @@ class BinAssistMCPServer:
         try:
             log.log_info("Creating FastMCP instance...")
             mcp = FastMCP(
-                name="BinAssist-MCP",
+                name="BinAssistMCP",
                 version="1.0.0",
                 description="Comprehensive MCP server for Binary Ninja reverse engineering",
                 lifespan=server_lifespan
@@ -641,12 +641,12 @@ class BinAssistMCPServer:
             return True
             
         try:
-            log.log_info("Starting BinAssist-MCP server...")
+            log.log_info("Starting BinAssistMCP server...")
             
             # Also log to Binary Ninja
             try:
                 import binaryninja as bn
-                bn.log_info("BinAssist-MCP: Server.start() method called")
+                bn.log_info("BinAssistMCP: Server.start() method called")
             except Exception as bn_log_error:
                 log.log_error(f"Failed to log to Binary Ninja: {bn_log_error}")
                 import traceback
@@ -659,7 +659,7 @@ class BinAssistMCPServer:
                 log.log_error(f"Configuration errors: {errors}")
                 try:
                     import binaryninja as bn
-                    bn.log_error(f"BinAssist-MCP configuration errors: {errors}")
+                    bn.log_error(f"BinAssistMCP configuration errors: {errors}")
                 except Exception as bn_log_error:
                     log.log_error(f"Failed to log config errors to Binary Ninja: {bn_log_error}")
                     import traceback
@@ -669,7 +669,7 @@ class BinAssistMCPServer:
             
             try:
                 import binaryninja as bn
-                bn.log_info("BinAssist-MCP: Configuration validation passed")
+                bn.log_info("BinAssistMCP: Configuration validation passed")
             except Exception as bn_log_error:
                 log.log_error(f"Failed to log validation success to Binary Ninja: {bn_log_error}")
                 import traceback
@@ -688,7 +688,7 @@ class BinAssistMCPServer:
                 log.log_info("SSE transport is disabled")
                 
             self._running = True
-            log.log_info(f"BinAssist-MCP server started successfully")
+            log.log_info(f"BinAssistMCP server started successfully")
             log.log_info(f"Available transports: {self.config.server.transport.value}")
             
             if self.config.is_transport_enabled(TransportType.SSE):
@@ -701,7 +701,7 @@ class BinAssistMCPServer:
             # Also log to Binary Ninja if available
             try:
                 import binaryninja as bn
-                bn.log_error(f"BinAssist-MCP server startup failed: {e}")
+                bn.log_error(f"BinAssistMCP server startup failed: {e}")
                 import traceback
                 traceback_msg = traceback.format_exc()
                 bn.log_error(f"Server startup traceback: {traceback_msg}")
@@ -776,7 +776,7 @@ class BinAssistMCPServer:
             log.log_warn("Server is not running")
             return
             
-        log.log_info("Stopping BinAssist-MCP server")
+        log.log_info("Stopping BinAssistMCP server")
         
         try:
             # Stop SSE server
@@ -804,7 +804,7 @@ class BinAssistMCPServer:
             log.log_error(f"Error during server shutdown: {e}")
         finally:
             self._running = False
-            log.log_info("BinAssist-MCP server stopped")
+            log.log_info("BinAssistMCP server stopped")
         
     def is_running(self) -> bool:
         """Check if the server is running"""

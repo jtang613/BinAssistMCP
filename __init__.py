@@ -1,5 +1,5 @@
 """
-BinAssist-MCP: Binary Ninja Plugin Entry Point
+BinAssistMCP: Binary Ninja Plugin Entry Point
 
 This file serves as the main entry point for the Binary Ninja plugin.
 Binary Ninja requires this __init__.py file in the root directory to recognize the plugin.
@@ -23,7 +23,7 @@ try:
         from .src.binassist_mcp.plugin import BinAssistMCPPlugin
         
         # Initialize the plugin
-        logger.info("Loading BinAssist-MCP plugin...")
+        logger.info("Loading BinAssistMCP plugin...")
         
         # The plugin will automatically register itself when imported
         plugin_instance = BinAssistMCPPlugin()
@@ -42,33 +42,33 @@ try:
                     plugin.handle_auto_startup(bv)
             except Exception as e:
                 logger.error(f"Error in auto-startup callback: {e}")
-                bn.log_error(f"BinAssist-MCP auto-startup error: {e}")
+                bn.log_error(f"BinAssistMCP auto-startup error: {e}")
         
         # Register the callback with Binary Ninja
         bn.BinaryViewType.add_binaryview_initial_analysis_completion_event(
             on_binaryview_analysis_completion
         )
         
-        logger.info("BinAssist-MCP plugin loaded successfully")
-        bn.log_info("BinAssist-MCP plugin loaded successfully")
-        bn.log_info("BinAssist-MCP auto-startup enabled - server will start automatically when analysis completes")
+        logger.info("BinAssistMCP plugin loaded successfully")
+        bn.log_info("BinAssistMCP plugin loaded successfully")
+        bn.log_info("BinAssistMCP auto-startup enabled - server will start automatically when analysis completes")
         
     except ImportError as import_err:
-        logger.error(f"Failed to import BinAssist-MCP modules: {import_err}")
-        bn.log_error(f"BinAssist-MCP plugin failed to load - missing dependencies: {import_err}")
-        bn.log_info("To fix this, install BinAssist-MCP dependencies: pip install anyio hypercorn mcp trio pydantic pydantic-settings click")
+        logger.error(f"Failed to import BinAssistMCP modules: {import_err}")
+        bn.log_error(f"BinAssistMCP plugin failed to load - missing dependencies: {import_err}")
+        bn.log_info("To fix this, install BinAssistMCP dependencies: pip install anyio hypercorn mcp trio pydantic pydantic-settings click")
         
     except Exception as plugin_err:
-        logger.error(f"Failed to initialize BinAssist-MCP plugin: {plugin_err}")
-        bn.log_error(f"BinAssist-MCP plugin initialization failed: {plugin_err}")
+        logger.error(f"Failed to initialize BinAssistMCP plugin: {plugin_err}")
+        bn.log_error(f"BinAssistMCP plugin initialization failed: {plugin_err}")
         
 except ImportError:
     logger.error("Binary Ninja not available - this should only happen outside of Binary Ninja")
     
 except Exception as e:
-    logger.error(f"Unexpected error in BinAssist-MCP plugin loading: {e}")
+    logger.error(f"Unexpected error in BinAssistMCP plugin loading: {e}")
     try:
         import binaryninja as bn
-        bn.log_error(f"BinAssist-MCP plugin unexpected error: {e}")
+        bn.log_error(f"BinAssistMCP plugin unexpected error: {e}")
     except:
         pass

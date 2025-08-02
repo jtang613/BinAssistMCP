@@ -1,5 +1,5 @@
 """
-Centralized logging utilities for BinAssist-MCP using Binary Ninja's Logger
+Centralized logging utilities for BinAssistMCP using Binary Ninja's Logger
 """
 
 import logging

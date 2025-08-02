@@ -1,5 +1,5 @@
 """
-Binary context management for BinAssist-MCP
+Binary context management for BinAssistMCP
 
 This module provides context management for multiple Binary Ninja BinaryViews
 with automatic name deduplication and lifecycle management.

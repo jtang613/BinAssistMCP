@@ -1,5 +1,5 @@
 """
-Configuration management for BinAssist-MCP
+Configuration management for BinAssistMCP
 
 This module provides configuration management using Pydantic settings with
 Binary Ninja integration for persistent storage.
@@ -63,7 +63,7 @@ class PluginConfig(BaseModel):
 
 
 class BinAssistMCPConfig(BaseSettings):
-    """Main configuration class for BinAssist-MCP"""
+    """Main configuration class for BinAssistMCP"""
     
     # Core settings
     log_level: LogLevel = Field(default=LogLevel.INFO, description="Logging level")
@@ -171,12 +171,12 @@ class BinAssistMCPConfig(BaseSettings):
             if not settings_manager.contains("binassistmcp.server.host"):
                 settings_manager.register_setting(
                     "binassistmcp.server.host",
-                    '{"description": "BinAssist-MCP server host address", "title": "Server Host", "default": "localhost", "type": "string"}'
+                    '{"description": "BinAssistMCP server host address", "title": "Server Host", "default": "localhost", "type": "string"}'
                 )
             if not settings_manager.contains("binassistmcp.server.port"):
                 settings_manager.register_setting(
                     "binassistmcp.server.port", 
-                    '{"description": "BinAssist-MCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
+                    '{"description": "BinAssistMCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
                 )
             if not settings_manager.contains("binassistmcp.server.transport"):
                 settings_manager.register_setting(

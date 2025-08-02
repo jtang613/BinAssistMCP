@@ -1,5 +1,5 @@
 """
-Comprehensive tool implementations for BinAssist-MCP
+Comprehensive tool implementations for BinAssistMCP
 
 This module provides all the Binary Ninja integration tools.
 """
