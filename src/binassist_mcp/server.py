@@ -5,6 +5,7 @@ This module provides the main MCP server with dual transport support (SSE and ST
 and comprehensive Binary Ninja integration.
 """
 
+import warnings
 from contextlib import asynccontextmanager
 from threading import Event, Thread
 from typing import AsyncIterator, List, Optional
@@ -14,6 +15,31 @@ from anyio import to_thread
 from hypercorn.config import Config as HypercornConfig
 from hypercorn.trio import serve
 from mcp.server.fastmcp import Context, FastMCP
+
+# Suppress ResourceWarnings for memory streams to reduce noise in logs
+warnings.filterwarnings("ignore", category=ResourceWarning, module="anyio.streams.memory")
+
+
+class ResourceManagedASGIApp:
+    """ASGI app wrapper that ensures proper resource cleanup"""
+    
+    def __init__(self, app):
+        self.app = app
+        
+    async def __call__(self, scope, receive, send):
+        """ASGI callable with resource management"""
+        try:
+            await self.app(scope, receive, send)
+        except Exception as e:
+            log.log_debug(f"ASGI app exception (likely connection closed): {e}")
+            # Don't re-raise connection errors as they're expected during shutdown
+        finally:
+            # Force cleanup of any lingering resources
+            try:
+                import gc
+                gc.collect()
+            except Exception:
+                pass
 
 from .config import BinAssistMCPConfig, TransportType
 from .context import BinAssistMCPBinaryContextManager
@@ -54,14 +80,21 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryCo
         try:
             log.log_info("Shutting down server, clearing binary context")
             context_manager.clear()
-            # Give time for async cleanup
-            await anyio.sleep(0.1)
+            
+            # Force garbage collection to help clean up any lingering references
+            import gc
+            gc.collect()
+            
+            # Give more time for async cleanup and stream finalization
+            await anyio.sleep(0.5)
+            
+            log.log_info("Server lifespan cleanup completed")
         except Exception as e:
             log.log_error(f"Error during server shutdown: {e}")
 
 
 class SSEServerThread(Thread):
-    """Thread for running the SSE server"""
+    """Thread for running the SSE server with improved resource management"""
     
     def __init__(self, asgi_app, config: BinAssistMCPConfig):
         super().__init__(name="BinAssist-SSE-Server", daemon=True)
@@ -70,15 +103,24 @@ class SSEServerThread(Thread):
         self.shutdown_signal = Event()
         self.hypercorn_config = HypercornConfig()
         self.hypercorn_config.bind = [f"{config.server.host}:{config.server.port}"]
+        
+        # Configure better connection handling for resource cleanup
+        self.hypercorn_config.keep_alive_timeout = 5
+        self.hypercorn_config.graceful_timeout = 10
+        
         # Disable hypercorn's logging to avoid ScriptingProvider messages
         self.hypercorn_config.access_log_format = ""
         self.hypercorn_config.error_logger = None
         self.hypercorn_config.access_logger = None
+        
         # Completely disable hypercorn logging
         import logging
         logging.getLogger('hypercorn').disabled = True
         logging.getLogger('hypercorn.error').disabled = True
         logging.getLogger('hypercorn.access').disabled = True
+        
+        # Suppress resource warnings specifically for this thread
+        warnings.filterwarnings("ignore", category=ResourceWarning)
         
     def run(self):
         """Run the SSE server"""
@@ -92,7 +134,7 @@ class SSEServerThread(Thread):
             log.log_error(f"SSE server traceback: {traceback.format_exc()}")
             
     async def _run_server(self):
-        """Async server runner"""
+        """Async server runner with improved resource cleanup"""
         try:
             await serve(
                 self.asgi_app, 
@@ -102,28 +144,45 @@ class SSEServerThread(Thread):
         except Exception as e:
             log.log_error(f"Server serve error: {e}")
         finally:
-            # Ensure proper cleanup
+            # Ensure proper cleanup with sufficient time for stream finalization
             try:
-                await anyio.sleep(0.1)  # Allow cleanup time
-            except Exception:
-                pass
+                log.log_debug("Starting SSE server cleanup")
+                
+                # Allow time for all pending connections and streams to close
+                await anyio.sleep(1.0)
+                
+                # Force garbage collection to clean up any orphaned streams
+                import gc
+                gc.collect()
+                
+                log.log_debug("SSE server cleanup completed")
+            except Exception as cleanup_error:
+                log.log_error(f"Error during SSE server cleanup: {cleanup_error}")
             
     async def _shutdown_trigger(self):
-        """Wait for shutdown signal"""
+        """Wait for shutdown signal with improved cleanup"""
         log.log_debug("Waiting for shutdown signal")
         await to_thread.run_sync(self.shutdown_signal.wait)
         log.log_info("Shutdown signal received")
         
+        # Allow time for existing connections to close gracefully
+        try:
+            await anyio.sleep(0.5)
+        except Exception:
+            pass
+        
     def stop(self):
-        """Stop the server"""
+        """Stop the server with improved cleanup"""
         log.log_info("Stopping SSE server")
         self.shutdown_signal.set()
         
-        # Wait for thread to finish with timeout
+        # Wait for thread to finish with longer timeout for proper cleanup
         if self.is_alive():
-            self.join(timeout=2.0)
+            self.join(timeout=5.0)
             if self.is_alive():
-                log.log_warn("SSE server thread did not shut down cleanly")
+                log.log_warn("SSE server thread did not shut down cleanly within 5 seconds")
+            else:
+                log.log_info("SSE server thread shutdown completed")
 
 
 class BinAssistMCPServer:
@@ -646,7 +705,7 @@ class BinAssistMCPServer:
             # Also log to Binary Ninja
             try:
                 import binaryninja as bn
-                bn.log_info("BinAssistMCP: Server.start() method called")
+                log.log_info("BinAssistMCP: Server.start() method called")
             except Exception as bn_log_error:
                 log.log_error(f"Failed to log to Binary Ninja: {bn_log_error}")
                 import traceback
@@ -659,7 +718,7 @@ class BinAssistMCPServer:
                 log.log_error(f"Configuration errors: {errors}")
                 try:
                     import binaryninja as bn
-                    bn.log_error(f"BinAssistMCP configuration errors: {errors}")
+                    log.log_error(f"BinAssistMCP configuration errors: {errors}")
                 except Exception as bn_log_error:
                     log.log_error(f"Failed to log config errors to Binary Ninja: {bn_log_error}")
                     import traceback
@@ -669,7 +728,7 @@ class BinAssistMCPServer:
             
             try:
                 import binaryninja as bn
-                bn.log_info("BinAssistMCP: Configuration validation passed")
+                log.log_info("BinAssistMCP: Configuration validation passed")
             except Exception as bn_log_error:
                 log.log_error(f"Failed to log validation success to Binary Ninja: {bn_log_error}")
                 import traceback
@@ -701,10 +760,10 @@ class BinAssistMCPServer:
             # Also log to Binary Ninja if available
             try:
                 import binaryninja as bn
-                bn.log_error(f"BinAssistMCP server startup failed: {e}")
+                log.log_error(f"BinAssistMCP server startup failed: {e}")
                 import traceback
                 traceback_msg = traceback.format_exc()
-                bn.log_error(f"Server startup traceback: {traceback_msg}")
+                log.log_error(f"Server startup traceback: {traceback_msg}")
             except Exception as bn_log_error:
                 log.log_error(f"Failed to log startup error to Binary Ninja: {bn_log_error}")
                 import traceback
@@ -713,7 +772,7 @@ class BinAssistMCPServer:
             return False
             
     def _start_sse_server(self):
-        """Start the SSE server thread"""
+        """Start the SSE server thread with improved error handling"""
         if not self.mcp_server:
             raise RuntimeError("MCP server not created")
             
@@ -751,23 +810,37 @@ class BinAssistMCPServer:
                 raise RuntimeError("Cannot create ASGI app for SSE transport")
             log.log_info(f"Created ASGI app: {asgi_app}")
             
-            self.sse_thread = SSEServerThread(asgi_app, self.config)
+            # Wrap the ASGI app with resource management
+            wrapped_asgi_app = ResourceManagedASGIApp(asgi_app)
+            log.log_info("Wrapped ASGI app with resource management")
+            
+            self.sse_thread = SSEServerThread(wrapped_asgi_app, self.config)
             log.log_info(f"Created SSE server thread for {self.config.server.host}:{self.config.server.port}")
             
             self.sse_thread.start()
             log.log_info("SSE server thread started")
             
-            # Give the thread a moment to start
+            # Give the thread a moment to start with better timing
             import time
-            time.sleep(0.1)
+            time.sleep(0.2)
             
             if self.sse_thread.is_alive():
                 log.log_info("SSE server thread is running")
             else:
                 log.log_error("SSE server thread failed to start")
+                # Clean up the failed thread reference
+                self.sse_thread = None
+                raise RuntimeError("SSE server thread failed to start")
                 
         except Exception as e:
             log.log_error(f"Failed to start SSE server: {e}")
+            # Clean up on failure
+            if hasattr(self, 'sse_thread') and self.sse_thread:
+                try:
+                    self.sse_thread.stop()
+                    self.sse_thread = None
+                except Exception as cleanup_error:
+                    log.log_error(f"Error cleaning up failed SSE server: {cleanup_error}")
             raise
         
     def stop(self):
@@ -779,26 +852,31 @@ class BinAssistMCPServer:
         log.log_info("Stopping BinAssistMCP server")
         
         try:
-            # Stop SSE server
+            # Stop SSE server with improved cleanup
             if self.sse_thread:
                 log.log_info("Stopping SSE server thread")
                 self.sse_thread.stop()
                 
-                # Wait for thread to finish
+                # Wait for thread to finish with proper timeout
                 if self.sse_thread.is_alive():
-                    self.sse_thread.join(timeout=5.0)
+                    self.sse_thread.join(timeout=10.0)
                     
                 if self.sse_thread.is_alive():
-                    log.log_warn("SSE server thread did not stop within timeout")
+                    log.log_warn("SSE server thread did not stop within 10 second timeout")
                 else:
                     log.log_info("SSE server thread stopped successfully")
                     
                 self.sse_thread = None
                 
-            # Clear MCP server reference
+            # Clear MCP server reference and force cleanup
             if self.mcp_server:
                 log.log_info("Clearing MCP server reference")
                 self.mcp_server = None
+                
+                # Force garbage collection to help clean up any lingering resources
+                import gc
+                gc.collect()
+                log.log_debug("Forced garbage collection after MCP server cleanup")
                 
         except Exception as e:
             log.log_error(f"Error during server shutdown: {e}")

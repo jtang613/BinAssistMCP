@@ -13,9 +13,11 @@ from .logging import log
 
 try:
     import binaryninja as bn
+    from binaryninja import AnalysisState
     BINJA_AVAILABLE = True
 except ImportError:
     BINJA_AVAILABLE = False
+    AnalysisState = None
     log.log_warn("Binary Ninja not available")
 
 
@@ -250,20 +252,41 @@ class BinAssistMCPBinaryContextManager:
         
     def _is_analysis_complete(self, binary_view: object) -> bool:
         """Check if analysis is complete for a BinaryView"""
-        if not BINJA_AVAILABLE or not binary_view:
+        if not BINJA_AVAILABLE or not binary_view or not AnalysisState:
             return False
             
         try:
+            # Method 1: Check analysis_progress state
             if hasattr(binary_view, 'analysis_progress'):
                 progress = binary_view.analysis_progress
-                return progress.state == progress.state.AnalysisStateInactive
+                current_state = progress.state
+                log.log_debug(f"Analysis progress state: {current_state} (IdleState={AnalysisState.IdleState})")
+                # Correct API: compare state directly to AnalysisState.IdleState
+                return current_state == AnalysisState.IdleState
+                
+            # Method 2: Check analysis_info state (alternative)
+            if hasattr(binary_view, 'analysis_info'):
+                info_state = binary_view.analysis_info.state
+                log.log_debug(f"Analysis info state: {info_state} (IdleState={AnalysisState.IdleState})")
+                return info_state == AnalysisState.IdleState
                 
             # Fallback: check if we have functions
             if hasattr(binary_view, 'functions'):
-                return len(list(binary_view.functions)) > 0
+                func_count = len(list(binary_view.functions))
+                log.log_debug(f"Analysis status fallback: {func_count} functions found")
+                return func_count > 0
                 
         except Exception as e:
             log.log_debug(f"Failed to check analysis status: {e}")
+            # Additional debug info
+            try:
+                if hasattr(binary_view, 'analysis_progress'):
+                    progress = binary_view.analysis_progress
+                    log.log_debug(f"Progress object type: {type(progress)}")
+                    log.log_debug(f"Progress state type: {type(progress.state)}")
+                    log.log_debug(f"Available AnalysisState values: {[attr for attr in dir(AnalysisState) if not attr.startswith('_')]}")
+            except Exception as debug_error:
+                log.log_debug(f"Failed to get debug info: {debug_error}")
             
         return False
         

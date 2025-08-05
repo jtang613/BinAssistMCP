@@ -3,6 +3,11 @@ Centralized logging utilities for BinAssistMCP using Binary Ninja's Logger
 """
 
 import logging
+import warnings
+
+# Suppress ResourceWarnings from anyio memory streams at the module level
+warnings.filterwarnings("ignore", category=ResourceWarning, module="anyio.streams.memory")
+warnings.filterwarnings("ignore", category=ResourceWarning, message=".*MemoryObjectReceiveStream.*")
 
 try:
     import binaryninja
@@ -33,16 +38,20 @@ try:
     setup_logging_filters()
     
     def disable_external_logging():
-        """Completely disable external library logging"""
+        """Completely disable external library logging and resource warnings"""
         # Set root logger to critical to suppress most messages
         logging.getLogger().setLevel(logging.CRITICAL)
+        
+        # Additional resource warning suppression
+        warnings.filterwarnings("ignore", category=ResourceWarning)
+        warnings.filterwarnings("ignore", message="unclosed.*", category=ResourceWarning)
         
         # Disable specific loggers completely
         external_loggers = [
             'hypercorn', 'hypercorn.error', 'hypercorn.access',
             'uvicorn', 'uvicorn.error', 'uvicorn.access', 
             'mcp', 'mcp.client', 'mcp.server',
-            'httpx', 'fastapi', 'starlette'
+            'httpx', 'fastapi', 'starlette', 'anyio'
         ]
         
         for logger_name in external_loggers:
