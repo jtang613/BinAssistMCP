@@ -1300,13 +1300,18 @@ class BinAssistMCPTools:
             
             # Get functions this function calls
             for call_site in func.call_sites:
-                called_func = self.bv.get_function_at(call_site.address)
-                if called_func:
-                    calls_to.append({
-                        "function": called_func.name,
-                        "address": hex(called_func.start),
-                        "call_site": hex(call_site.address)
-                    })
+                try:
+                    if hasattr(call_site, 'address'):
+                        called_func = self.bv.get_function_at(call_site.address)
+                        if called_func:
+                            calls_to.append({
+                                "function": called_func.name,
+                                "address": hex(called_func.start),
+                                "call_site": hex(call_site.address)
+                            })
+                except Exception as e:
+                    log.log_debug(f"Error processing call_site in get_call_graph: {e}")
+                    continue
                     
             # Get functions that call this function
             for caller in func.callers:
@@ -1329,12 +1334,17 @@ class BinAssistMCPTools:
             for func in self.bv.functions:
                 calls = []
                 for call_site in func.call_sites:
-                    called_func = self.bv.get_function_at(call_site.address)
-                    if called_func:
-                        calls.append({
-                            "target": called_func.name,
-                            "address": hex(called_func.start)
-                        })
+                    try:
+                        if hasattr(call_site, 'address'):
+                            called_func = self.bv.get_function_at(call_site.address)
+                            if called_func:
+                                calls.append({
+                                    "target": called_func.name,
+                                    "address": hex(called_func.start)
+                                })
+                    except Exception as e:
+                        log.log_debug(f"Error processing call_site in global call_graph: {e}")
+                        continue
                         
                 call_graph[func.name] = {
                     "address": hex(func.start),
@@ -1385,9 +1395,14 @@ class BinAssistMCPTools:
         # Call analysis
         calls_to = []
         for call_site in func.call_sites:
-            called_func = self.bv.get_function_at(call_site.address)
-            if called_func:
-                calls_to.append(called_func.name)
+            try:
+                if hasattr(call_site, 'address'):
+                    called_func = self.bv.get_function_at(call_site.address)
+                    if called_func:
+                        calls_to.append(called_func.name)
+            except Exception as e:
+                log.log_debug(f"Error processing call_site in analyze_function: {e}")
+                continue
                 
         analysis["calls"] = {
             "outgoing": calls_to,
@@ -1451,31 +1466,96 @@ class BinAssistMCPTools:
         
         # Get references TO this address
         for ref in self.bv.get_code_refs(addr):
-            ref_func = self.bv.get_function_at(ref)
-            xrefs_to.append({
-                "address": hex(ref),
-                "function": ref_func.name if ref_func else "unknown",
-                "type": "code"
-            })
+            try:
+                # Extract address from ReferenceSource object
+                if hasattr(ref, 'address'):
+                    ref_addr = ref.address
+                    ref_func = self.bv.get_function_at(ref_addr)
+                    xrefs_to.append({
+                        "address": hex(ref_addr),
+                        "function": ref_func.name if ref_func else "unknown",
+                        "type": "code"
+                    })
+                else:
+                    log.log_debug(f"Code ref has no address attribute: {ref} (type: {type(ref)})")
+            except Exception as e:
+                log.log_debug(f"Error processing code reference: {e}")
+                continue
             
         for ref in self.bv.get_data_refs(addr):
-            ref_func = self.bv.get_function_at(ref)
-            xrefs_to.append({
-                "address": hex(ref),
-                "function": ref_func.name if ref_func else "unknown", 
-                "type": "data"
-            })
+            try:
+                # Extract address from ReferenceSource object
+                if hasattr(ref, 'address'):
+                    ref_addr = ref.address
+                    ref_func = self.bv.get_function_at(ref_addr)
+                    xrefs_to.append({
+                        "address": hex(ref_addr),
+                        "function": ref_func.name if ref_func else "unknown", 
+                        "type": "data"
+                    })
+                else:
+                    log.log_debug(f"Data ref has no address attribute: {ref} (type: {type(ref)})")
+            except Exception as e:
+                log.log_debug(f"Error processing data reference: {e}")
+                continue
             
         # Get references FROM this address (if it's a function)
         func = self.bv.get_function_at(addr)
         if func:
-            for call_site in func.call_sites:
-                called_func = self.bv.get_function_at(call_site.address)
-                xrefs_from.append({
-                    "address": hex(call_site.address),
-                    "target": called_func.name if called_func else "unknown",
-                    "type": "call"
-                })
+            try:
+                # Method 1: Use call_sites with proper error handling
+                for call_site in func.call_sites:
+                    try:
+                        # Debug info for troubleshooting
+                        log.log_debug(f"Processing call_site: type={type(call_site)}, attributes={[attr for attr in dir(call_site) if not attr.startswith('_')]}")
+                        
+                        # Try to get address from ReferenceSource object
+                        if hasattr(call_site, 'address'):
+                            call_addr = call_site.address
+                            called_func = self.bv.get_function_at(call_addr)
+                            xrefs_from.append({
+                                "address": hex(call_addr),
+                                "target": called_func.name if called_func else "unknown",
+                                "type": "call"
+                            })
+                        else:
+                            log.log_debug(f"call_site has no address attribute: {call_site}")
+                            
+                    except Exception as call_site_error:
+                        log.log_debug(f"Error processing individual call_site: {call_site_error}")
+                        continue
+                        
+            except Exception as call_sites_error:
+                log.log_debug(f"Error accessing call_sites, trying alternative method: {call_sites_error}")
+                
+                # Method 2: Alternative using callees if call_sites fails
+                try:
+                    callees = func.callees
+                    call_sites_list = list(func.call_sites) if hasattr(func, 'call_sites') else []
+                    
+                    for i, callee in enumerate(callees):
+                        try:
+                            # Try to get corresponding call site address
+                            if i < len(call_sites_list) and hasattr(call_sites_list[i], 'address'):
+                                call_addr = call_sites_list[i].address
+                                xrefs_from.append({
+                                    "address": hex(call_addr),
+                                    "target": callee.name,
+                                    "type": "call"
+                                })
+                            else:
+                                # Fallback: just list the callee without specific call site
+                                xrefs_from.append({
+                                    "address": "unknown",
+                                    "target": callee.name,
+                                    "type": "call"
+                                })
+                        except Exception as callee_error:
+                            log.log_debug(f"Error processing callee {i}: {callee_error}")
+                            continue
+                            
+                except Exception as callees_error:
+                    log.log_debug(f"Both call_sites and callees methods failed: {callees_error}")
                 
         return {
             "address": hex(addr),
@@ -1598,13 +1678,18 @@ class BinAssistMCPTools:
                         
             if search_in in ["calls", "all"]:
                 for call_site in func.call_sites:
-                    called_func = self.bv.get_function_at(call_site.address)
-                    if called_func:
-                        called_name = called_func.name if case_sensitive else called_func.name.lower()
-                        if search_lower in called_name:
-                            match_found = True
-                            match_reason.append("calls")
-                            break
+                    try:
+                        if hasattr(call_site, 'address'):
+                            called_func = self.bv.get_function_at(call_site.address)
+                            if called_func:
+                                called_name = called_func.name if case_sensitive else called_func.name.lower()
+                                if search_lower in called_name:
+                                    match_found = True
+                                    match_reason.append("calls")
+                                    break
+                    except Exception as e:
+                        log.log_debug(f"Error processing call_site in search_functions_advanced: {e}")
+                        continue
                             
             if search_in in ["variables", "all"]:
                 for var in func.vars:
