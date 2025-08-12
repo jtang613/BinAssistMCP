@@ -10,14 +10,13 @@ from contextlib import asynccontextmanager
 from threading import Event, Thread
 from typing import AsyncIterator, List, Optional
 
-import anyio
-from anyio import to_thread
+import asyncio
 from hypercorn.config import Config as HypercornConfig
-from hypercorn.trio import serve
+from hypercorn.asyncio import serve
 from mcp.server.fastmcp import Context, FastMCP
 
 # Suppress ResourceWarnings for memory streams to reduce noise in logs
-warnings.filterwarnings("ignore", category=ResourceWarning, module="anyio.streams.memory")
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 
 class ResourceManagedASGIApp:
@@ -86,7 +85,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryCo
             gc.collect()
             
             # Give more time for async cleanup and stream finalization
-            await anyio.sleep(0.5)
+            await asyncio.sleep(0.5)
             
             log.log_info("Server lifespan cleanup completed")
         except Exception as e:
@@ -127,7 +126,16 @@ class SSEServerThread(Thread):
         try:
             log.log_info(f"Starting SSE server on {self.config.get_sse_url()}")
             log.log_info(f"Hypercorn config: {self.hypercorn_config.bind}")
-            anyio.run(self._run_server, backend='trio')
+            
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                loop.run_until_complete(self._run_server())
+            finally:
+                loop.close()
+                
         except Exception as e:
             log.log_error(f"SSE server error: {e}")
             import traceback
@@ -149,7 +157,7 @@ class SSEServerThread(Thread):
                 log.log_debug("Starting SSE server cleanup")
                 
                 # Allow time for all pending connections and streams to close
-                await anyio.sleep(1.0)
+                await asyncio.sleep(1.0)
                 
                 # Force garbage collection to clean up any orphaned streams
                 import gc
@@ -160,16 +168,15 @@ class SSEServerThread(Thread):
                 log.log_error(f"Error during SSE server cleanup: {cleanup_error}")
             
     async def _shutdown_trigger(self):
-        """Wait for shutdown signal with improved cleanup"""
+        """Wait for shutdown signal"""
         log.log_debug("Waiting for shutdown signal")
-        await to_thread.run_sync(self.shutdown_signal.wait)
+        # Use asyncio to run the blocking wait in a thread
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self.shutdown_signal.wait)
         log.log_info("Shutdown signal received")
         
         # Allow time for existing connections to close gracefully
-        try:
-            await anyio.sleep(0.5)
-        except Exception:
-            pass
+        await asyncio.sleep(0.5)
         
     def stop(self):
         """Stop the server with improved cleanup"""
@@ -352,7 +359,7 @@ class BinAssistMCPServer:
             return tools.get_imports()
             
         @mcp.tool()
-        def get_exports(filename: str, ctx: Context) -> list:
+        def get_exports(filename: str, ctx: Context) -> dict:
             """Get exported symbols"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -384,7 +391,7 @@ class BinAssistMCPServer:
             return tools.get_sections()
             
         @mcp.tool()
-        def update_analysis_and_wait(filename: str, ctx: Context) -> str:
+        def update_analysis_and_wait(filename: str, ctx: Context) -> bool:
             """Update binary analysis and wait for completion"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -470,7 +477,7 @@ class BinAssistMCPServer:
             return tools.get_comment(address)
             
         @mcp.tool()
-        def get_all_comments(filename: str, ctx: Context) -> list:
+        def get_all_comments(filename: str, ctx: Context) -> dict:
             """Get all comments in the binary"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -495,7 +502,7 @@ class BinAssistMCPServer:
             
         # Variable management tools
         @mcp.tool()
-        def create_variable(filename: str, function_name_or_address: str, var_name: str, var_type: str, ctx: Context, storage: str = "auto") -> str:
+        def create_variable(filename: str, function_name_or_address: str, var_name: str, var_type: str, ctx: Context, storage: str = "auto"):
             """Create a local variable in a function"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -552,7 +559,7 @@ class BinAssistMCPServer:
             return tools.create_enum(name, members)
             
         @mcp.tool()
-        def create_typedef(filename: str, name: str, base_type: str, ctx: Context) -> str:
+        def create_typedef(filename: str, name: str, base_type: str, ctx: Context):
             """Create a type alias (typedef)"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -560,7 +567,7 @@ class BinAssistMCPServer:
             return tools.create_typedef(name, base_type)
             
         @mcp.tool()
-        def get_type_info(filename: str, type_name: str, ctx: Context) -> dict:
+        def get_type_info(filename: str, type_name: str, ctx: Context):
             """Get detailed information about a specific type"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -569,15 +576,17 @@ class BinAssistMCPServer:
             
         # Function analysis tools
         @mcp.tool()
-        def get_call_graph(filename: str, ctx: Context, function_name_or_address: Optional[str] = None) -> dict:
+        def get_call_graph(filename: str, ctx: Context, function_name_or_address: str = ""):
             """Get call graph information for a function or entire binary"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
-            return tools.get_call_graph(function_name_or_address)
+            # Convert empty string back to None for the underlying function
+            func_param = function_name_or_address if function_name_or_address else None
+            return tools.get_call_graph(func_param)
             
         @mcp.tool()
-        def analyze_function(filename: str, function_name_or_address: str, ctx: Context) -> dict:
+        def analyze_function(filename: str, function_name_or_address: str, ctx: Context):
             """Perform comprehensive analysis of a function"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -585,7 +594,7 @@ class BinAssistMCPServer:
             return tools.analyze_function(function_name_or_address)
             
         @mcp.tool()
-        def get_cross_references(filename: str, address_or_name: str, ctx: Context) -> dict:
+        def get_cross_references(filename: str, address_or_name: str, ctx: Context):
             """Get cross-references for a function or address"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -595,22 +604,28 @@ class BinAssistMCPServer:
         # Enhanced function listing tools
         @mcp.tool()
         def get_functions_advanced(filename: str, ctx: Context,
-                                   name_filter: Optional[str] = None,
-                                   min_size: Optional[int] = None,
-                                   max_size: Optional[int] = None,
-                                   has_parameters: Optional[bool] = None,
+                                   name_filter: str = "",
+                                   min_size: int = 0,
+                                   max_size: int = 0,
+                                   has_parameters: bool = False,
                                    sort_by: str = "address",
-                                   limit: Optional[int] = None) -> list:
+                                   limit: int = 0):
             """Get functions with advanced filtering and search capabilities"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
-            return tools.get_functions_advanced(name_filter, min_size, max_size, has_parameters, sort_by, limit)
+            # Convert empty/zero values back to None for the underlying function
+            name_filter_val = name_filter if name_filter else None
+            min_size_val = min_size if min_size > 0 else None
+            max_size_val = max_size if max_size > 0 else None
+            has_parameters_val = has_parameters if has_parameters else None
+            limit_val = limit if limit > 0 else None
+            return tools.get_functions_advanced(name_filter_val, min_size_val, max_size_val, has_parameters_val, sort_by, limit_val)
             
         @mcp.tool()
         def search_functions_advanced(filename: str, search_term: str, ctx: Context,
                                       search_in: str = "name",
-                                      case_sensitive: bool = False) -> list:
+                                      case_sensitive: bool = False):
             """Advanced function search with multiple search targets"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -618,7 +633,7 @@ class BinAssistMCPServer:
             return tools.search_functions_advanced(search_term, search_in, case_sensitive)
             
         @mcp.tool()
-        def get_function_statistics(filename: str, ctx: Context) -> dict:
+        def get_function_statistics(filename: str, ctx: Context):
             """Get comprehensive statistics about all functions in the binary"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -627,7 +642,7 @@ class BinAssistMCPServer:
             
         # Current context tools
         @mcp.tool()
-        def get_current_address(filename: str, ctx: Context) -> dict:
+        def get_current_address(filename: str, ctx: Context):
             """Get the current address/offset in the binary view"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -635,7 +650,7 @@ class BinAssistMCPServer:
             return tools.get_current_address()
             
         @mcp.tool()
-        def get_current_function(filename: str, ctx: Context) -> dict:
+        def get_current_function(filename: str, ctx: Context):
             """Get the current function (function containing the current address)"""
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -648,7 +663,7 @@ class BinAssistMCPServer:
         """Register MCP resources"""
         
         @mcp.resource("binassist://{filename}/triage_summary")
-        def get_triage_summary_resource(filename: str) -> dict:
+        def get_triage_summary_resource(filename: str):
             """Get binary triage summary"""
             context_manager: BinAssistMCPBinaryContextManager = mcp.get_context().request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -656,7 +671,7 @@ class BinAssistMCPServer:
             return tools.get_triage_summary()
             
         @mcp.resource("binassist://{filename}/functions")
-        def get_functions_resource(filename: str) -> list:
+        def get_functions_resource(filename: str):
             """Get functions as a resource"""
             context_manager: BinAssistMCPBinaryContextManager = mcp.get_context().request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -664,7 +679,7 @@ class BinAssistMCPServer:
             return tools.get_functions()
             
         @mcp.resource("binassist://{filename}/imports")
-        def get_imports_resource(filename: str) -> dict:
+        def get_imports_resource(filename: str):
             """Get imports as a resource"""
             context_manager: BinAssistMCPBinaryContextManager = mcp.get_context().request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -672,7 +687,7 @@ class BinAssistMCPServer:
             return tools.get_imports()
             
         @mcp.resource("binassist://{filename}/exports")
-        def get_exports_resource(filename: str) -> list:
+        def get_exports_resource(filename: str):
             """Get exports as a resource"""
             context_manager: BinAssistMCPBinaryContextManager = mcp.get_context().request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -680,7 +695,7 @@ class BinAssistMCPServer:
             return tools.get_exports()
             
         @mcp.resource("binassist://{filename}/strings")
-        def get_strings_resource(filename: str) -> list:
+        def get_strings_resource(filename: str):
             """Get strings as a resource"""
             context_manager: BinAssistMCPBinaryContextManager = mcp.get_context().request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
@@ -689,7 +704,7 @@ class BinAssistMCPServer:
             
         log.log_info("Registered MCP resources")
         
-    def start(self) -> bool:
+    def start(self):
         """Start the MCP server with configured transports
         
         Returns:
@@ -855,18 +870,22 @@ class BinAssistMCPServer:
             # Stop SSE server with improved cleanup
             if self.sse_thread:
                 log.log_info("Stopping SSE server thread")
-                self.sse_thread.stop()
-                
-                # Wait for thread to finish with proper timeout
-                if self.sse_thread.is_alive():
-                    self.sse_thread.join(timeout=10.0)
+                try:
+                    self.sse_thread.stop()
                     
-                if self.sse_thread.is_alive():
-                    log.log_warn("SSE server thread did not stop within 10 second timeout")
-                else:
-                    log.log_info("SSE server thread stopped successfully")
-                    
-                self.sse_thread = None
+                    # Wait for thread to finish with proper timeout
+                    if self.sse_thread.is_alive():
+                        self.sse_thread.join(timeout=10.0)
+                        
+                    if self.sse_thread.is_alive():
+                        log.log_warn("SSE server thread did not stop within 10 second timeout")
+                    else:
+                        log.log_info("SSE server thread stopped successfully")
+                        
+                except Exception as stop_error:
+                    log.log_error(f"Error stopping SSE server thread: {stop_error}")
+                finally:
+                    self.sse_thread = None
                 
             # Clear MCP server reference and force cleanup
             if self.mcp_server:
@@ -884,7 +903,7 @@ class BinAssistMCPServer:
             self._running = False
             log.log_info("BinAssistMCP server stopped")
         
-    def is_running(self) -> bool:
+    def is_running(self):
         """Check if the server is running"""
         return self._running
         
