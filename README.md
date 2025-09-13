@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/jtang613-binassistmcp-badge.png)](https://mseep.ai/app/jtang613-binassistmcp)
+
 # BinAssistMCP
 
 > Comprehensive Model Context Protocol (MCP) server for Binary Ninja with AI-powered reverse engineering capabilities
