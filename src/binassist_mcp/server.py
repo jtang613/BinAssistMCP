@@ -228,8 +228,8 @@ class BinAssistMCPServer:
             log.log_info("Creating FastMCP instance...")
             mcp = FastMCP(
                 name="BinAssistMCP",
-                version="1.0.0",
-                description="Comprehensive MCP server for Binary Ninja reverse engineering",
+#                version="1.0.0",
+#                description="Comprehensive MCP server for Binary Ninja reverse engineering",
                 lifespan=server_lifespan
             )
             log.log_info("FastMCP instance created")
