@@ -26,8 +26,8 @@
         "Linux": "Install via Binary Ninja plugin manager or copy to ~/.binaryninja/plugins/", 
         "Windows": "Install via Binary Ninja plugin manager or copy to %APPDATA%\\Binary Ninja\\plugins\\"
     },
-    "version": "1.0.0",
-    "minimumbinaryninjaversion": 4000,
+    "version": "1.0.1",
+    "minimumbinaryninjaversion": 5000,
     "dependencies": {
         "pip": [
             "anyio>=4.6.0",
