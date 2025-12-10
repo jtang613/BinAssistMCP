@@ -18,8 +18,6 @@ from .logging import log
 class TransportType(str, Enum):
     """Available transport types for the MCP server"""
     SSE = "sse"
-    STDIO = "stdio"  
-    BOTH = "both"
 
 
 class LogLevel(str, Enum):
@@ -35,7 +33,7 @@ class ServerConfig(BaseModel):
     """Server-specific configuration"""
     host: str = Field(default="localhost", description="Server host address")
     port: int = Field(default=9090, ge=1024, le=65535, description="Server port")
-    transport: TransportType = Field(default=TransportType.BOTH, description="Transport type")
+    transport: TransportType = Field(default=TransportType.SSE, description="Transport type (SSE only)")
     max_connections: int = Field(default=100, ge=1, description="Maximum concurrent connections")
     
     @field_validator("host")
@@ -181,7 +179,7 @@ class BinAssistMCPConfig(BaseSettings):
             if not settings_manager.contains("binassistmcp.server.transport"):
                 settings_manager.register_setting(
                     "binassistmcp.server.transport",
-                    '{"description": "MCP transport type", "title": "Transport Type", "default": "both", "type": "string", "enum": ["sse", "stdio", "both"]}'
+                    '{"description": "MCP transport type (SSE only)", "title": "Transport Type", "default": "sse", "type": "string", "enum": ["sse"]}'
                 )
                 
             # Plugin settings
@@ -221,8 +219,6 @@ class BinAssistMCPConfig(BaseSettings):
         
     def is_transport_enabled(self, transport: TransportType) -> bool:
         """Check if a specific transport is enabled"""
-        if self.server.transport == TransportType.BOTH:
-            return True
         return self.server.transport == transport
         
     def validate(self) -> list[str]:

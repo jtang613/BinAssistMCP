@@ -1,11 +1,11 @@
 """
 BinAssistMCP: A comprehensive MCP server for Binary Ninja
 
-This package provides a FastMCP-based server that exposes Binary Ninja's 
+This package provides a FastMCP-based server that exposes Binary Ninja's
 reverse engineering capabilities through the Model Context Protocol (MCP).
 
 Features:
-- Dual transport support (SSE and STDIO)
+- SSE transport support for web-based clients
 - Comprehensive tool set for binary analysis
 - Multi-binary session management
 - Configurable server settings

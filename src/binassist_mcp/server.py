@@ -1,7 +1,7 @@
 """
 FastMCP server implementation for BinAssistMCP
 
-This module provides the main MCP server with dual transport support (SSE and STDIO)
+This module provides the main MCP server with SSE transport
 and comprehensive Binary Ninja integration.
 """
 
@@ -1283,19 +1283,6 @@ class BinAssistMCPServer:
         """Check if the server is running"""
         return self._running
         
-    def get_stdio_server(self):
-        """Get the MCP server for STDIO transport
-        
-        Returns:
-            FastMCP server instance for STDIO transport
-        """
-        if not self.config.is_transport_enabled(TransportType.STDIO):
-            raise RuntimeError("STDIO transport not enabled")
-            
-        if not self.mcp_server:
-            self.mcp_server = self.create_mcp_server()
-            
-        return self.mcp_server
         
     def __enter__(self):
         """Context manager entry"""

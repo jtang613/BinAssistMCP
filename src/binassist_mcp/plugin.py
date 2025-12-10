@@ -82,7 +82,7 @@ class BinAssistMCPPlugin:
             )
             settings.register_setting(
                 "binassistmcp.server.transport",
-                '{"description": "MCP transport type", "title": "Transport Type", "default": "both", "type": "string", "enum": ["sse", "stdio", "both"]}'
+                '{"description": "MCP transport type (SSE only)", "title": "Transport Type", "default": "sse", "type": "string", "enum": ["sse"]}'
             )
             
             # Plugin settings
@@ -210,13 +210,7 @@ class BinAssistMCPPlugin:
                     log.log_info(message)
                     
                 # Show transport information
-                if self.config.server.transport.value == "both":
-                    log.log_info(f"SSE endpoint: {self.config.get_sse_url()}")
-                    log.log_info("STDIO transport: Available via CLI")
-                elif self.config.server.transport.value == "sse":
-                    log.log_info(f"SSE endpoint: {self.config.get_sse_url()}")
-                elif self.config.server.transport.value == "stdio":
-                    log.log_info("STDIO transport: Available via CLI")
+                log.log_info(f"SSE endpoint: {self.config.get_sse_url()}")
                     
                 # Try to verify server is listening
                 import socket
