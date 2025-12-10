@@ -1,5 +1,5 @@
 # Core MCP framework
-mcp>=1.0.0
+mcp==1.23.3
 
 # Async/ASGI server support
 anyio>=4.0.0

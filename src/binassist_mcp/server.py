@@ -30,7 +30,13 @@ class ResourceManagedASGIApp:
         try:
             await self.app(scope, receive, send)
         except Exception as e:
-            log.log_debug(f"ASGI app exception (likely connection closed): {e}")
+            # Connection closed or shutdown errors are expected and can be safely ignored
+            error_msg = str(e)
+            if "ASGIHTTPState" in error_msg or "connection" in error_msg.lower():
+                log.log_debug(f"Connection closed during operation (expected): {e}")
+            else:
+                # Log unexpected errors at a higher level
+                log.log_warn(f"Unexpected ASGI exception: {e}")
             # Don't re-raise connection errors as they're expected during shutdown
         finally:
             # Force cleanup of any lingering resources
@@ -260,13 +266,24 @@ class BinAssistMCPServer:
         
         @mcp.tool()
         def list_binaries(ctx: Context) -> List[str]:
-            """List all currently loaded binary names"""
+            """List all currently loaded binary names
+
+            Returns:
+                List of binary filenames currently loaded in the MCP server
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             return context_manager.list_binaries()
             
         @mcp.tool()
         def get_binary_status(filename: str, ctx: Context) -> dict:
-            """Get status information for a specific binary"""
+            """Get status information for a specific binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                Dictionary with binary name, load status, file path, and analysis status
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             try:
                 binary_info = context_manager.get_binary_info(filename)
@@ -287,7 +304,16 @@ class BinAssistMCPServer:
         # Analysis tools
         @mcp.tool()
         def rename_symbol(filename: str, address_or_name: str, new_name: str, ctx: Context) -> str:
-            """Rename a function or data variable"""
+            """Rename a function or data variable
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Address (hex string) or name of the symbol
+                new_name: New name for the symbol
+
+            Returns:
+                Success message string
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -295,7 +321,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def decompile_function(filename: str, address_or_name: str, ctx: Context) -> str:
-            """Decompile a function to high-level representation"""
+            """Decompile a function to high-level representation
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Function name or address
+
+            Returns:
+                Decompiled function code
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -303,7 +337,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_function_pseudo_c(filename: str, address_or_name: str, ctx: Context) -> str:
-            """Get pseudo C code for a function"""
+            """Get pseudo C code for a function
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Function name or address
+
+            Returns:
+                Pseudo C code as string
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -311,7 +353,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_function_high_level_il(filename: str, address_or_name: str, ctx: Context) -> str:
-            """Get High Level IL for a function"""
+            """Get High Level IL for a function
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Function name or address
+
+            Returns:
+                HLIL as string
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -319,7 +369,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_function_medium_level_il(filename: str, address_or_name: str, ctx: Context) -> str:
-            """Get Medium Level IL for a function"""
+            """Get Medium Level IL for a function
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Function name or address
+
+            Returns:
+                MLIL as string
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -327,7 +385,16 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_disassembly(filename: str, address_or_name: str, ctx: Context, length: Optional[int] = None) -> str:
-            """Get disassembly for a function or address range"""
+            """Get disassembly for a function or address range
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Function name or start address
+                length: Optional length in bytes for range disassembly
+
+            Returns:
+                Disassembly as string
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -336,7 +403,14 @@ class BinAssistMCPServer:
         # Information retrieval tools
         @mcp.tool()
         def get_functions(filename: str, ctx: Context) -> list:
-            """Get list of all functions in the binary"""
+            """Get list of all functions in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of function dictionaries with name, address, size, and metadata
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -344,7 +418,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def search_functions_by_name(filename: str, search_term: str, ctx: Context) -> list:
-            """Search functions by name substring"""
+            """Search functions by name substring
+
+            Args:
+                filename: Name of the binary file
+                search_term: Substring to search for
+
+            Returns:
+                List of matching functions
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -352,7 +434,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_imports(filename: str, ctx: Context) -> dict:
-            """Get imported symbols"""
+            """Get imported symbols grouped by module
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                Dictionary mapping module names to lists of imported symbols
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -360,7 +449,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_exports(filename: str, ctx: Context) -> dict:
-            """Get exported symbols"""
+            """Get exported symbols
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of exported symbols with names, addresses, and types
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -368,7 +464,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_strings(filename: str, ctx: Context) -> list:
-            """Get strings found in the binary"""
+            """Get strings found in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of strings with value, address, length, and type
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -376,7 +479,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_segments(filename: str, ctx: Context) -> list:
-            """Get memory segments"""
+            """Get memory segments
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of segments with start, end, length, and permissions
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -384,7 +494,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_sections(filename: str, ctx: Context) -> list:
-            """Get binary sections"""
+            """Get binary sections
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of sections with name, start, end, length, and metadata
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -392,7 +509,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def update_analysis_and_wait(filename: str, ctx: Context) -> bool:
-            """Update binary analysis and wait for completion"""
+            """Update binary analysis and wait for completion
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                Success message string
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -404,7 +528,14 @@ class BinAssistMCPServer:
         # Class and namespace management tools
         @mcp.tool()
         def get_classes(filename: str, ctx: Context) -> list:
-            """Get all classes/structs/types in the binary"""
+            """Get all classes/structs/types in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of class/struct definitions with members
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -412,7 +543,16 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def create_class(filename: str, name: str, size: int, ctx: Context) -> str:
-            """Create a new class/struct type"""
+            """Create a new class/struct type
+
+            Args:
+                filename: Name of the binary file
+                name: Name of the class/struct
+                size: Size in bytes
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -420,7 +560,18 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def add_class_member(filename: str, class_name: str, member_name: str, member_type: str, offset: int, ctx: Context) -> str:
-            """Add a member to an existing class/struct"""
+            """Add a member to an existing class/struct
+
+            Args:
+                filename: Name of the binary file
+                class_name: Name of the class/struct
+                member_name: Name of the member
+                member_type: Type of the member (e.g., 'int32_t', 'char*')
+                offset: Offset within the struct
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -428,7 +579,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_namespaces(filename: str, ctx: Context) -> list:
-            """Get all namespaces in the binary"""
+            """Get all namespaces in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of namespaces with their symbols
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -437,7 +595,17 @@ class BinAssistMCPServer:
         # Advanced data management tools
         @mcp.tool()
         def create_data_var(filename: str, address: str, var_type: str, ctx: Context, name: Optional[str] = None) -> str:
-            """Create a data variable at the specified address"""
+            """Create a data variable at the specified address
+
+            Args:
+                filename: Name of the binary file
+                address: Address in hex format (e.g., '0x401000')
+                var_type: Type of the variable (e.g., 'int32_t', 'char*')
+                name: Optional name for the variable
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -445,7 +613,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_data_vars(filename: str, ctx: Context) -> list:
-            """Get all data variables in the binary"""
+            """Get all data variables in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of data variables with address, type, size, and name
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -453,7 +628,16 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_data_at_address(filename: str, address: str, ctx: Context, size: Optional[int] = None) -> dict:
-            """Get data at a specific address"""
+            """Get data at a specific address
+
+            Args:
+                filename: Name of the binary file
+                address: Address in hex format
+                size: Optional size to read (if not specified, uses data var size or default 16)
+
+            Returns:
+                Dictionary with data information including hex, raw bytes, and interpreted values
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -462,7 +646,16 @@ class BinAssistMCPServer:
         # Comment management tools
         @mcp.tool()
         def set_comment(filename: str, address: str, comment: str, ctx: Context) -> str:
-            """Set a comment at the specified address"""
+            """Set a comment at the specified address
+
+            Args:
+                filename: Name of the binary file
+                address: Address in hex format
+                comment: Comment text
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -470,7 +663,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_comment(filename: str, address: str, ctx: Context) -> Optional[str]:
-            """Get comment at the specified address"""
+            """Get comment at the specified address
+
+            Args:
+                filename: Name of the binary file
+                address: Address in hex format
+
+            Returns:
+                Comment text or None if no comment exists
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -478,7 +679,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_all_comments(filename: str, ctx: Context) -> dict:
-            """Get all comments in the binary"""
+            """Get all comments in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                List of all comments with addresses and types
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -486,7 +694,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def remove_comment(filename: str, address: str, ctx: Context) -> str:
-            """Remove comment at the specified address"""
+            """Remove comment at the specified address
+
+            Args:
+                filename: Name of the binary file
+                address: Address in hex format
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -494,7 +710,16 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def set_function_comment(filename: str, function_name_or_address: str, comment: str, ctx: Context) -> str:
-            """Set a comment for an entire function"""
+            """Set a comment for an entire function
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Function name or address
+                comment: Comment text
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -503,7 +728,18 @@ class BinAssistMCPServer:
         # Variable management tools
         @mcp.tool()
         def create_variable(filename: str, function_name_or_address: str, var_name: str, var_type: str, ctx: Context, storage: str = "auto"):
-            """Create a local variable in a function"""
+            """Create a local variable in a function
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Function name or address
+                var_name: Variable name
+                var_type: Variable type (e.g., 'int32_t', 'char*')
+                storage: Storage type ('auto', 'register', etc.)
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -511,7 +747,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_variables(filename: str, function_name_or_address: str, ctx: Context) -> list:
-            """Get all variables in a function"""
+            """Get all variables in a function
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Function name or address
+
+            Returns:
+                List of variables with their information
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -519,7 +763,17 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def rename_variable(filename: str, function_name_or_address: str, old_name: str, new_name: str, ctx: Context) -> str:
-            """Rename a variable in a function"""
+            """Rename a variable in a function
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Function name or address
+                old_name: Current variable name
+                new_name: New variable name
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -527,7 +781,17 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def set_variable_type(filename: str, function_name_or_address: str, var_name: str, var_type: str, ctx: Context) -> str:
-            """Set the type of a variable in a function"""
+            """Set the type of a variable in a function
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Function name or address
+                var_name: Variable name
+                var_type: New variable type (e.g., 'int32_t', 'char*')
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -536,23 +800,50 @@ class BinAssistMCPServer:
         # Type system tools
         @mcp.tool()
         def create_type(filename: str, name: str, definition: str, ctx: Context) -> str:
-            """Create a new type definition"""
+            """Create a new data type from a C-like definition
+
+            Args:
+                filename: Name of the binary file
+                name: Name of the type
+                definition: Type definition (e.g., 'struct { int x; int y; }', 'int*')
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
             return tools.create_type(name, definition)
             
         @mcp.tool()
-        def get_types(filename: str, ctx: Context) -> list:
-            """Get all user-defined types"""
+        def get_types(filename: str, page_size: int = 100, page_number: int = 1, ctx: Context = None) -> dict:
+            """Get all user-defined types with pagination
+
+            Args:
+                filename: Name of the binary file
+                page_size: Number of types per page (default: 100)
+                page_number: Page number starting from 1 (default: 1)
+
+            Returns:
+                Dictionary with types, page_size, page_number, total_count, and total_pages
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
-            return tools.get_types()
+            return tools.get_types(page_size=page_size, page_number=page_number)
             
         @mcp.tool()
         def create_enum(filename: str, name: str, members: dict, ctx: Context) -> str:
-            """Create an enumeration type"""
+            """Create an enumeration type
+
+            Args:
+                filename: Name of the binary file
+                name: Name of the enum
+                members: Dictionary of member names to values
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -560,7 +851,16 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def create_typedef(filename: str, name: str, base_type: str, ctx: Context):
-            """Create a type alias (typedef)"""
+            """Create a type alias (typedef)
+
+            Args:
+                filename: Name of the binary file
+                name: Name of the typedef
+                base_type: Base type to alias
+
+            Returns:
+                Success message
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -568,7 +868,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_type_info(filename: str, type_name: str, ctx: Context):
-            """Get detailed information about a specific type"""
+            """Get detailed information about a specific type
+
+            Args:
+                filename: Name of the binary file
+                type_name: Name of the type
+
+            Returns:
+                Dictionary with type information including members, size, and category
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -577,7 +885,15 @@ class BinAssistMCPServer:
         # Function analysis tools
         @mcp.tool()
         def get_call_graph(filename: str, ctx: Context, function_name_or_address: str = ""):
-            """Get call graph information for a function or entire binary"""
+            """Get call graph information for a function or entire binary
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Optional function name or address (if empty, returns global call graph)
+
+            Returns:
+                Call graph information with caller/callee relationships
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -587,7 +903,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def analyze_function(filename: str, function_name_or_address: str, ctx: Context):
-            """Perform comprehensive analysis of a function"""
+            """Perform comprehensive analysis of a function
+
+            Args:
+                filename: Name of the binary file
+                function_name_or_address: Function name or address
+
+            Returns:
+                Comprehensive function analysis including control flow, complexity, and call information
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -595,7 +919,15 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_cross_references(filename: str, address_or_name: str, ctx: Context):
-            """Get cross-references for a function or address"""
+            """Get cross-references for a function or address
+
+            Args:
+                filename: Name of the binary file
+                address_or_name: Function name or address
+
+            Returns:
+                Cross-reference information showing where the address is referenced
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -610,7 +942,20 @@ class BinAssistMCPServer:
                                    has_parameters: bool = False,
                                    sort_by: str = "address",
                                    limit: int = 0):
-            """Get functions with advanced filtering and search capabilities"""
+            """Get functions with advanced filtering and search capabilities
+
+            Args:
+                filename: Name of the binary file
+                name_filter: Filter by function name (substring match)
+                min_size: Minimum function size in bytes
+                max_size: Maximum function size in bytes
+                has_parameters: Filter by whether function has parameters
+                sort_by: Sort by 'address', 'name', 'size', or 'complexity'
+                limit: Maximum number of results
+
+            Returns:
+                Filtered and sorted list of functions
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -626,7 +971,17 @@ class BinAssistMCPServer:
         def search_functions_advanced(filename: str, search_term: str, ctx: Context,
                                       search_in: str = "name",
                                       case_sensitive: bool = False):
-            """Advanced function search with multiple search targets"""
+            """Advanced function search with multiple search targets
+
+            Args:
+                filename: Name of the binary file
+                search_term: Term to search for
+                search_in: Where to search ('name', 'comment', 'calls', 'variables')
+                case_sensitive: Whether search should be case sensitive
+
+            Returns:
+                List of matching functions
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -634,7 +989,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_function_statistics(filename: str, ctx: Context):
-            """Get comprehensive statistics about all functions in the binary"""
+            """Get comprehensive statistics about all functions in the binary
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                Statistics including size, complexity, parameters, and top functions
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -643,7 +1005,14 @@ class BinAssistMCPServer:
         # Current context tools
         @mcp.tool()
         def get_current_address(filename: str, ctx: Context):
-            """Get the current address/offset in the binary view"""
+            """Get the current address/offset in the binary view
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                Dictionary containing current address information with context
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
@@ -651,7 +1020,14 @@ class BinAssistMCPServer:
             
         @mcp.tool()
         def get_current_function(filename: str, ctx: Context):
-            """Get the current function (function containing the current address)"""
+            """Get the current function (function containing the current address)
+
+            Args:
+                filename: Name of the binary file
+
+            Returns:
+                Dictionary containing current function name and address
+            """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)

@@ -588,7 +588,7 @@ class BinAssistMCPTools:
         
         # Get all user-defined types
         for type_name, type_obj in self.bv.types.items():
-            if isinstance(type_obj, (bn.StructureType, bn.ClassType)):
+            if isinstance(type_obj, bn.StructureType):
                 members = []
                 for member in type_obj.members:
                     members.append({
@@ -599,7 +599,7 @@ class BinAssistMCPTools:
                     
                 classes.append({
                     "name": type_name,
-                    "type": "class" if isinstance(type_obj, bn.ClassType) else "struct",
+                    "type": "struct",  # Binary Ninja uses StructureType for both classes and structs
                     "size": type_obj.width,
                     "members": members,
                     "member_count": len(members)
@@ -648,7 +648,7 @@ class BinAssistMCPTools:
             raise ValueError(f"Class/struct '{class_name}' not found")
             
         struct_type = self.bv.types[class_name]
-        if not isinstance(struct_type, (bn.StructureType, bn.ClassType)):
+        if not isinstance(struct_type, bn.StructureType):
             raise ValueError(f"'{class_name}' is not a class or struct")
             
         # Parse the member type
@@ -656,13 +656,15 @@ class BinAssistMCPTools:
             parsed_type = self.bv.parse_type_string(member_type)[0]
         except Exception as e:
             raise ValueError(f"Invalid type '{member_type}': {str(e)}")
-            
-        # Create new structure with the added member
-        struct = bn.StructureBuilder.create(struct_type)
-        struct.insert(offset, parsed_type, member_name)
-        
-        # Update the type
-        self.bv.define_user_type(class_name, struct)
+
+        # Create a mutable copy of the existing structure
+        struct_builder = struct_type.mutable_copy()
+
+        # Insert the new member at the specified offset
+        struct_builder.insert(offset, parsed_type, member_name)
+
+        # Redefine the type in the binary view
+        self.bv.define_user_type(class_name, struct_builder)
         return f"Successfully added member '{member_name}' to '{class_name}' at offset {offset}"
         
     @handle_exceptions
@@ -1092,7 +1094,7 @@ class BinAssistMCPTools:
     @handle_exceptions
     @require_binja
     def create_type(self, name: str, definition: str) -> str:
-        """Create a new type definition
+        """Create a new data type from a C-like definition
         
         Args:
             name: Name of the type
@@ -1116,10 +1118,22 @@ class BinAssistMCPTools:
         
     @handle_exceptions
     @require_binja
-    def get_types(self) -> List[Dict[str, Any]]:
-        """Get all user-defined types"""
-        types = []
-        
+    def get_types(self, page_size: int = 100, page_number: int = 1) -> Dict[str, Any]:
+        """Get all user-defined types with pagination
+
+        Args:
+            page_size: Number of types per page (default: 100)
+            page_number: Page number starting from 1 (default: 1)
+
+        Returns:
+            Dictionary containing:
+                - types: List of type information dictionaries
+                - page_size: The page size used
+                - page_number: The current page number
+                - total_count: Total number of types
+        """
+        all_types = []
+
         for type_name, type_obj in self.bv.types.items():
             type_info = {
                 "name": type_name,
@@ -1127,26 +1141,38 @@ class BinAssistMCPTools:
                 "category": self._get_type_category(type_obj),
                 "definition": str(type_obj)
             }
-            
+
             # Add additional info for complex types
-            if isinstance(type_obj, (bn.StructureType, bn.ClassType)):
+            if isinstance(type_obj, bn.StructureType):
                 type_info["member_count"] = len(type_obj.members) if hasattr(type_obj, 'members') else 0
             elif isinstance(type_obj, bn.EnumerationType):
                 type_info["member_count"] = len(type_obj.members) if hasattr(type_obj, 'members') else 0
             elif isinstance(type_obj, bn.ArrayType):
                 type_info["element_type"] = str(type_obj.element_type)
                 type_info["count"] = type_obj.count
-                
-            types.append(type_info)
-            
-        return types
+
+            all_types.append(type_info)
+
+        # Calculate pagination
+        total_count = len(all_types)
+        start_idx = (page_number - 1) * page_size
+        end_idx = start_idx + page_size
+
+        # Get the paginated slice
+        paginated_types = all_types[start_idx:end_idx]
+
+        return {
+            "types": paginated_types,
+            "page_size": page_size,
+            "page_number": page_number,
+            "total_count": total_count,
+            "total_pages": (total_count + page_size - 1) // page_size if page_size > 0 else 0
+        }
         
     def _get_type_category(self, type_obj) -> str:
         """Get the category of a type object"""
         if isinstance(type_obj, bn.StructureType):
             return "struct"
-        elif isinstance(type_obj, bn.ClassType):
-            return "class"
         elif isinstance(type_obj, bn.EnumerationType):
             return "enum"
         elif isinstance(type_obj, bn.ArrayType):
@@ -1236,7 +1262,7 @@ class BinAssistMCPTools:
         }
         
         # Add specific information based on type
-        if isinstance(type_obj, (bn.StructureType, bn.ClassType)):
+        if isinstance(type_obj, bn.StructureType):
             info["members"] = []
             if hasattr(type_obj, 'members'):
                 for member in type_obj.members:
