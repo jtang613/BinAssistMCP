@@ -210,6 +210,7 @@ class BinAssistMCPServer:
         self.config = config or BinAssistMCPConfig()
         self.mcp_server: Optional[FastMCP] = None
         self.sse_thread: Optional[SSEServerThread] = None
+        self.streamablehttp_thread: Optional[SSEServerThread] = None  # Reuse SSEServerThread for streamablehttp
         self._initial_binaries: List = []
         self._running = False
         
@@ -1134,15 +1135,21 @@ class BinAssistMCPServer:
             if self.config.is_transport_enabled(TransportType.SSE):
                 log.log_info("SSE transport is enabled, starting SSE server...")
                 self._start_sse_server()
+            # Start Streamable HTTP transport if enabled
+            elif self.config.is_transport_enabled(TransportType.STREAMABLEHTTP):
+                log.log_info("Streamable HTTP transport is enabled, starting Streamable HTTP server...")
+                self._start_streamablehttp_server()
             else:
-                log.log_info("SSE transport is disabled")
-                
+                log.log_warn(f"Unknown transport type: {self.config.server.transport}")
+
             self._running = True
             log.log_info(f"BinAssistMCP server started successfully")
             log.log_info(f"Available transports: {self.config.server.transport.value}")
-            
+
             if self.config.is_transport_enabled(TransportType.SSE):
                 log.log_info(f"SSE endpoint: {self.config.get_sse_url()}")
+            elif self.config.is_transport_enabled(TransportType.STREAMABLEHTTP):
+                log.log_info(f"Streamable HTTP endpoint: {self.config.get_streamablehttp_url()}")
                 
             return True
             
@@ -1233,7 +1240,55 @@ class BinAssistMCPServer:
                 except Exception as cleanup_error:
                     log.log_error(f"Error cleaning up failed SSE server: {cleanup_error}")
             raise
-        
+
+    def _start_streamablehttp_server(self):
+        """Start the Streamable HTTP server thread"""
+        if not self.mcp_server:
+            raise RuntimeError("MCP server not created")
+
+        try:
+            # Create ASGI app for Streamable HTTP transport
+            log.log_info("Creating Streamable HTTP ASGI app...")
+
+            if hasattr(self.mcp_server, 'streamable_http_app'):
+                log.log_info("Using streamable_http_app method")
+                asgi_app = self.mcp_server.streamable_http_app()
+            else:
+                raise RuntimeError("FastMCP does not have streamable_http_app method")
+
+            log.log_info(f"Created Streamable HTTP ASGI app: {asgi_app}")
+
+            # Wrap the ASGI app with resource management
+            wrapped_asgi_app = ResourceManagedASGIApp(asgi_app)
+            log.log_info("Wrapped Streamable HTTP ASGI app with resource management")
+
+            self.streamablehttp_thread = SSEServerThread(wrapped_asgi_app, self.config)
+            log.log_info(f"Created Streamable HTTP server thread for {self.config.server.host}:{self.config.server.port}")
+
+            self.streamablehttp_thread.start()
+            log.log_info("Streamable HTTP server thread started")
+
+            # Give the thread a moment to start
+            import time
+            time.sleep(0.2)
+
+            if self.streamablehttp_thread.is_alive():
+                log.log_info("Streamable HTTP server thread is running")
+            else:
+                log.log_error("Streamable HTTP server thread failed to start")
+                self.streamablehttp_thread = None
+                raise RuntimeError("Streamable HTTP server thread failed to start")
+
+        except Exception as e:
+            log.log_error(f"Failed to start Streamable HTTP server: {e}")
+            if hasattr(self, 'streamablehttp_thread') and self.streamablehttp_thread:
+                try:
+                    self.streamablehttp_thread.stop()
+                    self.streamablehttp_thread = None
+                except Exception as cleanup_error:
+                    log.log_error(f"Error cleaning up failed Streamable HTTP server: {cleanup_error}")
+            raise
+
     def stop(self):
         """Stop the MCP server"""
         if not self._running:
@@ -1248,21 +1303,41 @@ class BinAssistMCPServer:
                 log.log_info("Stopping SSE server thread")
                 try:
                     self.sse_thread.stop()
-                    
+
                     # Wait for thread to finish with proper timeout
                     if self.sse_thread.is_alive():
                         self.sse_thread.join(timeout=10.0)
-                        
+
                     if self.sse_thread.is_alive():
                         log.log_warn("SSE server thread did not stop within 10 second timeout")
                     else:
                         log.log_info("SSE server thread stopped successfully")
-                        
+
                 except Exception as stop_error:
                     log.log_error(f"Error stopping SSE server thread: {stop_error}")
                 finally:
                     self.sse_thread = None
-                
+
+            # Stop Streamable HTTP server with improved cleanup
+            if self.streamablehttp_thread:
+                log.log_info("Stopping Streamable HTTP server thread")
+                try:
+                    self.streamablehttp_thread.stop()
+
+                    # Wait for thread to finish with proper timeout
+                    if self.streamablehttp_thread.is_alive():
+                        self.streamablehttp_thread.join(timeout=10.0)
+
+                    if self.streamablehttp_thread.is_alive():
+                        log.log_warn("Streamable HTTP server thread did not stop within 10 second timeout")
+                    else:
+                        log.log_info("Streamable HTTP server thread stopped successfully")
+
+                except Exception as stop_error:
+                    log.log_error(f"Error stopping Streamable HTTP server thread: {stop_error}")
+                finally:
+                    self.streamablehttp_thread = None
+
             # Clear MCP server reference and force cleanup
             if self.mcp_server:
                 log.log_info("Clearing MCP server reference")

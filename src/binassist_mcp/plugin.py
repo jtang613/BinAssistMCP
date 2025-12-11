@@ -82,7 +82,7 @@ class BinAssistMCPPlugin:
             )
             settings.register_setting(
                 "binassistmcp.server.transport",
-                '{"description": "MCP transport type (SSE only)", "title": "Transport Type", "default": "sse", "type": "string", "enum": ["sse"]}'
+                '{"description": "MCP transport type", "title": "Transport Type", "default": "streamablehttp", "type": "string", "enum": ["sse", "streamablehttp"]}'
             )
             
             # Plugin settings

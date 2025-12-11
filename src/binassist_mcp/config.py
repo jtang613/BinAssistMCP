@@ -18,6 +18,7 @@ from .logging import log
 class TransportType(str, Enum):
     """Available transport types for the MCP server"""
     SSE = "sse"
+    STREAMABLEHTTP = "streamablehttp"
 
 
 class LogLevel(str, Enum):
@@ -33,7 +34,7 @@ class ServerConfig(BaseModel):
     """Server-specific configuration"""
     host: str = Field(default="localhost", description="Server host address")
     port: int = Field(default=9090, ge=1024, le=65535, description="Server port")
-    transport: TransportType = Field(default=TransportType.SSE, description="Transport type (SSE only)")
+    transport: TransportType = Field(default=TransportType.STREAMABLEHTTP, description="Transport type (SSE or Streamable HTTP)")
     max_connections: int = Field(default=100, ge=1, description="Maximum concurrent connections")
     
     @field_validator("host")
@@ -179,7 +180,7 @@ class BinAssistMCPConfig(BaseSettings):
             if not settings_manager.contains("binassistmcp.server.transport"):
                 settings_manager.register_setting(
                     "binassistmcp.server.transport",
-                    '{"description": "MCP transport type (SSE only)", "title": "Transport Type", "default": "sse", "type": "string", "enum": ["sse"]}'
+                    '{"description": "MCP transport type", "title": "Transport Type", "default": "streamablehttp", "type": "string", "enum": ["sse", "streamablehttp"]}'
                 )
                 
             # Plugin settings
@@ -216,7 +217,11 @@ class BinAssistMCPConfig(BaseSettings):
     def get_sse_url(self) -> str:
         """Get the SSE endpoint URL"""
         return f"{self.get_server_url()}/sse"
-        
+
+    def get_streamablehttp_url(self) -> str:
+        """Get the Streamable HTTP endpoint URL"""
+        return f"{self.get_server_url()}/mcp"
+
     def is_transport_enabled(self, transport: TransportType) -> bool:
         """Check if a specific transport is enabled"""
         return self.server.transport == transport
