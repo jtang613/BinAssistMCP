@@ -14,6 +14,7 @@ import asyncio
 from hypercorn.config import Config as HypercornConfig
 from hypercorn.asyncio import serve
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 # Suppress ResourceWarnings for memory streams to reduce noise in logs
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -21,24 +22,88 @@ warnings.filterwarnings("ignore", category=ResourceWarning)
 
 class ResourceManagedASGIApp:
     """ASGI app wrapper that ensures proper resource cleanup"""
-    
+
     def __init__(self, app):
         self.app = app
-        
+        self._response_started = {}
+
     async def __call__(self, scope, receive, send):
         """ASGI callable with resource management"""
+        # Track if response has started for this connection
+        scope_id = id(scope)
+        self._response_started[scope_id] = False
+
+        async def wrapped_send(message):
+            """Wrap send to track response state and prevent ASGI violations"""
+            if message["type"] == "http.response.start":
+                self._response_started[scope_id] = True
+            elif message["type"] == "http.response.body":
+                # Only send if response hasn't already completed
+                if not self._response_started.get(scope_id):
+                    log.log_debug("Attempted to send response body before response start")
+                    return
+            try:
+                await send(message)
+            except Exception as e:
+                # Handle send errors gracefully (client disconnections, etc.)
+                error_msg = str(e)
+                # Check for expected ASGI state errors and connection issues
+                if ("connection" in error_msg.lower() or
+                    "closed" in error_msg.lower() or
+                    "ASGIHTTPState" in error_msg or
+                    "response already" in error_msg.lower() or
+                    "Unexpected message type" in error_msg):
+                    log.log_debug(f"Client disconnected or ASGI state error (expected): {e}")
+                else:
+                    log.log_warn(f"Error sending ASGI message: {e}")
+
         try:
-            await self.app(scope, receive, send)
-        except Exception as e:
-            # Connection closed or shutdown errors are expected and can be safely ignored
+            await self.app(scope, receive, wrapped_send)
+        except BaseException as e:
+            # Handle both exception groups and regular exceptions
+            import sys
+            if sys.version_info >= (3, 11):
+                # Check if this is an ExceptionGroup
+                if isinstance(e, BaseExceptionGroup):
+                    log.log_error(f"ASGI exception group: {e}")
+                    all_connection_errors = True
+                    for exc in e.exceptions:
+                        error_msg = str(exc)
+                        # Check for all types of expected ASGI/connection errors
+                        if ("ASGIHTTPState" in error_msg or
+                            "connection" in error_msg.lower() or
+                            "closed" in error_msg.lower() or
+                            "response already" in error_msg.lower() or
+                            "Unexpected message type" in error_msg):
+                            log.log_debug(f"Client disconnect or ASGI state error (expected): {exc}")
+                        else:
+                            log.log_error(f"Unexpected exception in group: {exc}")
+                            all_connection_errors = False
+                    # Don't re-raise if all errors are connection-related
+                    if all_connection_errors:
+                        log.log_debug("All exceptions are connection-related, suppressing")
+                        return
+                    else:
+                        raise
+
+            # Handle single exceptions
             error_msg = str(e)
-            if "ASGIHTTPState" in error_msg or "connection" in error_msg.lower():
-                log.log_debug(f"Connection closed during operation (expected): {e}")
+            # Check for all types of expected ASGI/connection errors
+            if ("ASGIHTTPState" in error_msg or
+                "connection" in error_msg.lower() or
+                "closed" in error_msg.lower() or
+                "response already" in error_msg.lower() or
+                "Unexpected message type" in error_msg):
+                log.log_debug(f"Client disconnect or ASGI state error (expected): {e}")
             else:
-                # Log unexpected errors at a higher level
-                log.log_warn(f"Unexpected ASGI exception: {e}")
+                # Log unexpected errors with full details
+                log.log_error(f"Unexpected ASGI exception: {e}")
+                import traceback
+                log.log_error(f"Traceback: {traceback.format_exc()}")
             # Don't re-raise connection errors as they're expected during shutdown
         finally:
+            # Clean up response tracking
+            self._response_started.pop(scope_id, None)
             # Force cleanup of any lingering resources
             try:
                 import gc
@@ -65,7 +130,7 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryCo
     context_manager = BinAssistMCPBinaryContextManager(
         max_binaries=getattr(server, '_config', BinAssistMCPConfig()).binary.max_binaries
     )
-    
+
     # Add initial binaries if provided
     initial_binaries = getattr(server, '_initial_binaries', [])
     for binary_view in initial_binaries:
@@ -73,26 +138,47 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryCo
             context_manager.add_binary(binary_view)
         except Exception as e:
             log.log_error(f"Failed to add initial binary: {e}")
-    
+
     log.log_info(f"Server started with {len(context_manager)} initial binaries")
-    
+
     try:
         yield context_manager
-    except Exception as e:
+    except BaseException as e:
+        # Handle both exception groups and regular exceptions
+        import sys
+        if sys.version_info >= (3, 11):
+            # Check if this is an ExceptionGroup
+            if isinstance(e, BaseExceptionGroup):
+                log.log_error(f"Server lifespan TaskGroup error: {e}")
+                all_connection_errors = True
+                for exc in e.exceptions:
+                    log.log_error(f"Lifespan sub-exception: {exc}")
+                    if not ("connection" in str(exc).lower() or "closed" in str(exc).lower()):
+                        all_connection_errors = False
+                # Don't re-raise if these are just connection errors
+                if all_connection_errors:
+                    log.log_debug("All lifespan exceptions are connection-related, suppressing")
+                    return
+                else:
+                    raise
+
+        # Handle regular exceptions
         log.log_error(f"Server lifespan error: {e}")
+        import traceback
+        log.log_error(f"Lifespan traceback: {traceback.format_exc()}")
         raise
     finally:
         try:
             log.log_info("Shutting down server, clearing binary context")
             context_manager.clear()
-            
+
             # Force garbage collection to help clean up any lingering references
             import gc
             gc.collect()
-            
+
             # Give more time for async cleanup and stream finalization
             await asyncio.sleep(0.5)
-            
+
             log.log_info("Server lifespan cleanup completed")
         except Exception as e:
             log.log_error(f"Error during server shutdown: {e}")
@@ -108,7 +194,7 @@ class SSEServerThread(Thread):
         self.shutdown_signal = Event()
         self.hypercorn_config = HypercornConfig()
         self.hypercorn_config.bind = [f"{config.server.host}:{config.server.port}"]
-        
+
         # Configure better connection handling for resource cleanup
         self.hypercorn_config.keep_alive_timeout = 5
         self.hypercorn_config.graceful_timeout = 10
@@ -151,24 +237,38 @@ class SSEServerThread(Thread):
         """Async server runner with improved resource cleanup"""
         try:
             await serve(
-                self.asgi_app, 
-                self.hypercorn_config, 
+                self.asgi_app,
+                self.hypercorn_config,
                 shutdown_trigger=self._shutdown_trigger
             )
-        except Exception as e:
+        except BaseException as e:
+            # Handle both exception groups and regular exceptions
+            import sys
+            import traceback
+            if sys.version_info >= (3, 11):
+                # Check if this is an ExceptionGroup
+                if isinstance(e, BaseExceptionGroup):
+                    log.log_error(f"Server TaskGroup error: {e}")
+                    for exc in e.exceptions:
+                        log.log_error(f"Sub-exception: {exc}")
+                        log.log_error(f"Traceback: {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+                    return
+
+            # Handle regular exceptions
             log.log_error(f"Server serve error: {e}")
+            log.log_error(f"Traceback: {traceback.format_exc()}")
         finally:
             # Ensure proper cleanup with sufficient time for stream finalization
             try:
                 log.log_debug("Starting SSE server cleanup")
-                
+
                 # Allow time for all pending connections and streams to close
                 await asyncio.sleep(1.0)
-                
+
                 # Force garbage collection to clean up any orphaned streams
                 import gc
                 gc.collect()
-                
+
                 log.log_debug("SSE server cleanup completed")
             except Exception as cleanup_error:
                 log.log_error(f"Error during SSE server cleanup: {cleanup_error}")
@@ -237,7 +337,11 @@ class BinAssistMCPServer:
                 name="BinAssistMCP",
 #                version="1.0.0",
 #                description="Comprehensive MCP server for Binary Ninja reverse engineering",
-                lifespan=server_lifespan
+                lifespan=server_lifespan,
+                # Disable DNS rebinding protection to allow binding to any IP address
+                transport_security=TransportSecuritySettings(
+                    enable_dns_rebinding_protection=False
+                )
             )
             log.log_info("FastMCP instance created")
             
@@ -1173,13 +1277,15 @@ class BinAssistMCPServer:
         """Start the SSE server thread with improved error handling"""
         if not self.mcp_server:
             raise RuntimeError("MCP server not created")
-            
+
         try:
             # Create ASGI app for SSE transport
-            log.log_info(f"Available MCP server methods: {[m for m in dir(self.mcp_server) if not m.startswith('_')]}")
-            
+            log.log_info("Creating SSE ASGI app...")
+            log.log_info(f"MCP server type: {type(self.mcp_server)}")
+
+            # FastMCP 2.4.0+ uses sse_app() method
             if hasattr(self.mcp_server, 'sse_app'):
-                log.log_info("Using sse_app method")
+                log.log_info("Using FastMCP sse_app() method")
                 asgi_app = self.mcp_server.sse_app()
             elif hasattr(self.mcp_server, 'create_asgi_app'):
                 log.log_info("Using create_asgi_app method")
@@ -1200,38 +1306,42 @@ class BinAssistMCPServer:
                 # Let's see what attributes it actually has
                 all_attrs = [attr for attr in dir(self.mcp_server) if not attr.startswith('__')]
                 log.log_error(f"MCP server attributes: {all_attrs}")
-                
+
                 # Try to find any ASGI-like method
                 asgi_methods = [attr for attr in all_attrs if 'asgi' in attr.lower() or 'app' in attr.lower()]
                 log.log_error(f"Potential ASGI methods: {asgi_methods}")
-                
+
                 raise RuntimeError("Cannot create ASGI app for SSE transport")
-            log.log_info(f"Created ASGI app: {asgi_app}")
-            
+
+            log.log_info(f"Created SSE ASGI app: {type(asgi_app)}")
+
             # Wrap the ASGI app with resource management
             wrapped_asgi_app = ResourceManagedASGIApp(asgi_app)
-            log.log_info("Wrapped ASGI app with resource management")
-            
+            log.log_info("Wrapped SSE ASGI app with error handling and resource management")
+
             self.sse_thread = SSEServerThread(wrapped_asgi_app, self.config)
             log.log_info(f"Created SSE server thread for {self.config.server.host}:{self.config.server.port}")
-            
+            log.log_info(f"SSE endpoint will be available at: {self.config.get_sse_url()}")
+
             self.sse_thread.start()
             log.log_info("SSE server thread started")
-            
+
             # Give the thread a moment to start with better timing
             import time
             time.sleep(0.2)
-            
+
             if self.sse_thread.is_alive():
-                log.log_info("SSE server thread is running")
+                log.log_info("SSE server thread is running and ready for connections")
             else:
                 log.log_error("SSE server thread failed to start")
                 # Clean up the failed thread reference
                 self.sse_thread = None
                 raise RuntimeError("SSE server thread failed to start")
-                
+
         except Exception as e:
             log.log_error(f"Failed to start SSE server: {e}")
+            import traceback
+            log.log_error(f"SSE startup traceback: {traceback.format_exc()}")
             # Clean up on failure
             if hasattr(self, 'sse_thread') and self.sse_thread:
                 try:
