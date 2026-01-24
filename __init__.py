@@ -5,6 +5,21 @@ This file serves as the main entry point for the Binary Ninja plugin.
 Binary Ninja requires this __init__.py file in the root directory to recognize the plugin.
 """
 
+# Fix pywin32 paths on Windows (required for mcp library)
+# Binary Ninja doesn't process .pth files, so we add the paths manually
+import sys
+import os
+if sys.platform == 'win32':
+    _site_packages = os.path.join(os.environ.get('APPDATA', ''), 'Binary Ninja', 'python310', 'site-packages')
+    _win32_paths = [
+        os.path.join(_site_packages, 'win32'),
+        os.path.join(_site_packages, 'win32', 'lib'),
+        os.path.join(_site_packages, 'Pythonwin'),
+    ]
+    for _p in _win32_paths:
+        if _p not in sys.path and os.path.isdir(_p):
+            sys.path.insert(0, _p)
+
 import logging
 
 # Configure logging early
@@ -56,7 +71,7 @@ try:
     except ImportError as import_err:
         logger.error(f"Failed to import BinAssistMCP modules: {import_err}")
         bn.log_error(f"BinAssistMCP plugin failed to load - missing dependencies: {import_err}")
-        bn.log_info("To fix this, install BinAssistMCP dependencies: pip install anyio hypercorn mcp trio pydantic pydantic-settings click")
+        bn.log_info("To fix this, install BinAssistMCP dependencies: pip install anyio hypercorn mcp pydantic pydantic-settings click")
         
     except Exception as plugin_err:
         logger.error(f"Failed to initialize BinAssistMCP plugin: {plugin_err}")

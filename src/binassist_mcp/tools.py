@@ -59,44 +59,57 @@ class BinAssistMCPTools:
             
     def _resolve_symbol(self, address_or_name: str) -> Optional[int]:
         """Resolve a symbol name or address to a numeric address
-        
+
         Args:
             address_or_name: Either a hex address string or symbol name
-            
+
         Returns:
             Numeric address if found, None otherwise
+
+        Raises:
+            ValueError: If address is outside binary bounds
         """
+        address = None
+
         # Try to parse as hex address
         try:
             if isinstance(address_or_name, str) and address_or_name.startswith("0x"):
-                return int(address_or_name, 16)
-            return int(address_or_name, 16)
+                address = int(address_or_name, 16)
+            else:
+                address = int(address_or_name, 16)
         except ValueError:
             pass
-            
+
         # Try to parse as decimal address
-        try:
-            addr = int(address_or_name)
-            if addr >= 0:
-                return addr
-        except ValueError:
-            pass
-            
+        if address is None:
+            try:
+                addr = int(address_or_name)
+                if addr >= 0:
+                    address = addr
+            except ValueError:
+                pass
+
+        # Validate address bounds if we parsed a numeric address
+        if address is not None:
+            if address < self.bv.start or address > self.bv.end:
+                raise ValueError(f"Address {hex(address)} is outside binary bounds ({hex(self.bv.start)} - {hex(self.bv.end)})")
+            return address
+
         # Search by function name
         for func in self.bv.functions:
             if func.name == address_or_name:
                 return func.start
-                
+
         # Search by data variable name
         for addr, var in self.bv.data_vars.items():
             if hasattr(var, 'symbol') and var.symbol and var.symbol.name == address_or_name:
                 return addr
-                
+
         # Search by symbol name
         symbol = self.bv.get_symbol_by_raw_name(str(address_or_name))
         if symbol:
             return symbol.address
-            
+
         return None
         
     def _get_function_by_name_or_address(self, identifier: Union[str, int]):
@@ -1914,11 +1927,11 @@ class BinAssistMCPTools:
         
     def _get_variable_type_safe(self, func, var) -> str:
         """Safely get variable type with fallbacks for API compatibility
-        
+
         Args:
             func: Function object
             var: Variable object
-            
+
         Returns:
             String representation of variable type or 'unknown'
         """
@@ -1933,3 +1946,638 @@ class BinAssistMCPTools:
         except Exception as e:
             log.log_debug(f"Failed to get variable type: {e}")
             return "unknown"
+
+    # ==================== CONSOLIDATED TOOLS ====================
+    # These unified tools reduce tool count while maintaining functionality
+
+    @handle_exceptions
+    @require_binja
+    def get_code(self, function_name_or_address: str, format: str = "decompile") -> Dict[str, Any]:
+        """Get function code in specified format.
+
+        Unified tool consolidating: decompile_function, get_function_pseudo_c,
+        get_function_high_level_il, get_function_medium_level_il, get_disassembly,
+        get_function_low_level_il
+
+        Args:
+            function_name_or_address: Function identifier (name or hex address)
+            format: Output format - one of:
+                - 'decompile': High-level decompiled code (default)
+                - 'hlil': High Level Intermediate Language
+                - 'mlil': Medium Level Intermediate Language
+                - 'llil': Low Level Intermediate Language
+                - 'disasm': Assembly disassembly
+                - 'pseudo_c': Pseudo C code
+
+        Returns:
+            Dictionary with function info and code in requested format
+        """
+        func = self._get_function_by_name_or_address(function_name_or_address)
+        if not func:
+            raise ValueError(f"Function not found: {function_name_or_address}")
+
+        result = {
+            "function": func.name,
+            "address": hex(func.start),
+            "format": format,
+            "code": None
+        }
+
+        if format == "decompile":
+            # Use existing decompile logic
+            func.analysis_skipped = False
+            self.bv.update_analysis_and_wait()
+            if hasattr(func, 'hlil') and func.hlil:
+                result["code"] = str(func.hlil)
+            elif hasattr(func, 'mlil') and func.mlil:
+                result["code"] = str(func.mlil)
+            else:
+                lines = []
+                for block in func.basic_blocks:
+                    for i in range(block.start, block.end):
+                        disasm = self.bv.get_disassembly(i)
+                        if disasm:
+                            lines.append(f"{hex(i)}: {disasm}")
+                result["code"] = "\n".join(lines)
+
+        elif format == "hlil":
+            func.analysis_skipped = False
+            self.bv.update_analysis_and_wait()
+            if hasattr(func, 'hlil') and func.hlil:
+                lines = []
+                for block in func.hlil:
+                    for instr in block:
+                        lines.append(str(instr))
+                result["code"] = "\n".join(lines)
+            else:
+                result["code"] = "HLIL not available for this function"
+
+        elif format == "mlil":
+            func.analysis_skipped = False
+            self.bv.update_analysis_and_wait()
+            if hasattr(func, 'mlil') and func.mlil:
+                lines = []
+                for block in func.mlil:
+                    for instr in block:
+                        lines.append(str(instr))
+                result["code"] = "\n".join(lines)
+            else:
+                result["code"] = "MLIL not available for this function"
+
+        elif format == "llil":
+            func.analysis_skipped = False
+            self.bv.update_analysis_and_wait()
+            if hasattr(func, 'llil') and func.llil:
+                lines = []
+                for block in func.llil:
+                    for instr in block:
+                        lines.append(f"{hex(instr.address)}: {instr}")
+                result["code"] = "\n".join(lines)
+            else:
+                result["code"] = "LLIL not available for this function"
+
+        elif format == "disasm":
+            lines = []
+            for block in func.basic_blocks:
+                for i in range(block.start, block.end):
+                    disasm = self.bv.get_disassembly(i)
+                    if disasm:
+                        lines.append(f"{hex(i)}: {disasm}")
+            result["code"] = "\n".join(lines)
+
+        elif format == "pseudo_c":
+            func.analysis_skipped = False
+            self.bv.update_analysis_and_wait()
+            if hasattr(func, 'hlil') and func.hlil:
+                # Build pseudo-C representation
+                code_lines = []
+                params = ", ".join([
+                    f"{self._get_variable_type_safe(func, p)} {p.name}"
+                    for p in func.parameter_vars
+                ]) if func.parameter_vars else "void"
+                return_type = str(func.return_type) if func.return_type else "void"
+                code_lines.append(f"{return_type} {func.name}({params}) {{")
+                for block in func.hlil:
+                    for instr in block:
+                        code_lines.append(f"    {instr}")
+                code_lines.append("}")
+                result["code"] = "\n".join(code_lines)
+            else:
+                result["code"] = "Pseudo-C not available (HLIL unavailable)"
+
+        else:
+            raise ValueError(f"Unknown format: {format}. Valid: decompile, hlil, mlil, llil, disasm, pseudo_c")
+
+        return result
+
+    @handle_exceptions
+    @require_binja
+    def comments(self, action: str, address: str = "", text: str = "",
+                 function_name_or_address: str = "") -> Union[str, Dict, List, None]:
+        """Unified comment management tool.
+
+        Consolidates: set_comment, get_comment, get_all_comments, remove_comment, set_function_comment
+
+        Args:
+            action: Action to perform - one of:
+                - 'get': Get comment at address
+                - 'set': Set comment at address (requires address and text)
+                - 'list': List all comments in binary
+                - 'remove': Remove comment at address
+                - 'set_function': Set function comment (requires function_name_or_address and text)
+            address: Address in hex format (for get/set/remove actions)
+            text: Comment text (for set/set_function actions)
+            function_name_or_address: Function identifier (for set_function action)
+
+        Returns:
+            Varies by action - string for set/remove, dict/list for get/list
+        """
+        if action == "get":
+            if not address:
+                raise ValueError("Address required for 'get' action")
+            addr = self._resolve_symbol(address)
+            if addr is None:
+                raise ValueError(f"Invalid address: {address}")
+            comment = self.bv.get_comment_at(addr)
+            return comment if comment else None
+
+        elif action == "set":
+            if not address or not text:
+                raise ValueError("Address and text required for 'set' action")
+            addr = self._resolve_symbol(address)
+            if addr is None:
+                raise ValueError(f"Invalid address: {address}")
+            self.bv.set_comment_at(addr, text)
+            return f"Comment set at {hex(addr)}"
+
+        elif action == "list":
+            comments = []
+            # Get address comments
+            for addr, comment in self.bv.address_comments.items():
+                comments.append({
+                    "address": hex(addr),
+                    "comment": comment,
+                    "type": "address"
+                })
+            # Get function comments
+            for func in self.bv.functions:
+                if func.comment:
+                    comments.append({
+                        "address": hex(func.start),
+                        "function": func.name,
+                        "comment": func.comment,
+                        "type": "function"
+                    })
+            return comments
+
+        elif action == "remove":
+            if not address:
+                raise ValueError("Address required for 'remove' action")
+            addr = self._resolve_symbol(address)
+            if addr is None:
+                raise ValueError(f"Invalid address: {address}")
+            self.bv.set_comment_at(addr, "")
+            return f"Comment removed at {hex(addr)}"
+
+        elif action == "set_function":
+            if not function_name_or_address or not text:
+                raise ValueError("function_name_or_address and text required for 'set_function' action")
+            func = self._get_function_by_name_or_address(function_name_or_address)
+            if not func:
+                raise ValueError(f"Function not found: {function_name_or_address}")
+            func.comment = text
+            return f"Function comment set for '{func.name}'"
+
+        else:
+            raise ValueError(f"Unknown action: {action}. Valid: get, set, list, remove, set_function")
+
+    @handle_exceptions
+    @require_binja
+    def variables_unified(self, action: str, function_name_or_address: str,
+                         var_name: str = "", var_type: str = "",
+                         new_name: str = "", storage: str = "auto") -> Union[str, List]:
+        """Unified variable management tool.
+
+        Consolidates: create_variable, get_variables, rename_variable, set_variable_type
+
+        Args:
+            action: Action to perform - one of:
+                - 'list': List all variables in function
+                - 'create': Create new variable (requires var_name, var_type)
+                - 'rename': Rename variable (requires var_name, new_name)
+                - 'set_type': Set variable type (requires var_name, var_type)
+            function_name_or_address: Function identifier
+            var_name: Variable name (for create/rename/set_type)
+            var_type: Variable type (for create/set_type)
+            new_name: New variable name (for rename)
+            storage: Storage type for create ('auto', 'register', etc.)
+
+        Returns:
+            List for 'list' action, success message string for others
+        """
+        func = self._get_function_by_name_or_address(function_name_or_address)
+        if not func:
+            raise ValueError(f"Function not found: {function_name_or_address}")
+
+        if action == "list":
+            return self.get_variables(function_name_or_address)
+
+        elif action == "create":
+            if not var_name or not var_type:
+                raise ValueError("var_name and var_type required for 'create' action")
+            return self.create_variable(function_name_or_address, var_name, var_type, storage)
+
+        elif action == "rename":
+            if not var_name or not new_name:
+                raise ValueError("var_name and new_name required for 'rename' action")
+            return self.rename_variable(function_name_or_address, var_name, new_name)
+
+        elif action == "set_type":
+            if not var_name or not var_type:
+                raise ValueError("var_name and var_type required for 'set_type' action")
+            return self.set_variable_type(function_name_or_address, var_name, var_type)
+
+        else:
+            raise ValueError(f"Unknown action: {action}. Valid: list, create, rename, set_type")
+
+    @handle_exceptions
+    @require_binja
+    def types_unified(self, action: str, name: str = "", kind: str = "",
+                     definition: str = "", size: int = 0, members: Dict = None,
+                     base_type: str = "", class_name: str = "",
+                     member_name: str = "", member_type: str = "", offset: int = 0) -> Union[str, List, Dict]:
+        """Unified type management tool.
+
+        Consolidates: create_type, create_class, create_enum, create_typedef, add_class_member, get_types, get_type_info
+
+        Args:
+            action: Action to perform - one of:
+                - 'list': List all types (paginated)
+                - 'info': Get info about specific type (requires name)
+                - 'create': Create type from definition (requires name, definition)
+                - 'create_class': Create class/struct (requires name, size)
+                - 'create_enum': Create enum (requires name, members dict)
+                - 'create_typedef': Create typedef (requires name, base_type)
+                - 'add_member': Add member to class (requires class_name, member_name, member_type, offset)
+            name: Type/class/enum name
+            kind: Type kind (for future extension)
+            definition: C-like type definition
+            size: Size in bytes (for create_class)
+            members: Dictionary of enum members {name: value}
+            base_type: Base type for typedef
+            class_name: Class name for add_member
+            member_name: Member name
+            member_type: Member type
+            offset: Member offset in struct
+
+        Returns:
+            Varies by action
+        """
+        if action == "list":
+            return self.get_types()
+
+        elif action == "info":
+            if not name:
+                raise ValueError("name required for 'info' action")
+            return self.get_type_info(name)
+
+        elif action == "create":
+            if not name or not definition:
+                raise ValueError("name and definition required for 'create' action")
+            return self.create_type(name, definition)
+
+        elif action == "create_class":
+            if not name or size <= 0:
+                raise ValueError("name and size required for 'create_class' action")
+            return self.create_class(name, size)
+
+        elif action == "create_enum":
+            if not name or not members:
+                raise ValueError("name and members required for 'create_enum' action")
+            return self.create_enum(name, members)
+
+        elif action == "create_typedef":
+            if not name or not base_type:
+                raise ValueError("name and base_type required for 'create_typedef' action")
+            return self.create_typedef(name, base_type)
+
+        elif action == "add_member":
+            if not class_name or not member_name or not member_type:
+                raise ValueError("class_name, member_name, and member_type required for 'add_member' action")
+            return self.add_class_member(class_name, member_name, member_type, offset)
+
+        else:
+            raise ValueError(f"Unknown action: {action}. Valid: list, info, create, create_class, create_enum, create_typedef, add_member")
+
+    @handle_exceptions
+    @require_binja
+    def xrefs(self, address_or_name: str, direction: str = "both",
+              include_calls: bool = True) -> Dict[str, Any]:
+        """Unified cross-reference tool.
+
+        Consolidates: get_call_graph, get_cross_references
+
+        Args:
+            address_or_name: Address or symbol name to analyze
+            direction: Reference direction - 'to', 'from', or 'both'
+            include_calls: Include function call relationships
+
+        Returns:
+            Dictionary with cross-reference information
+        """
+        result = {
+            "target": address_or_name,
+            "direction": direction,
+            "references_to": [],
+            "references_from": [],
+            "call_graph": None
+        }
+
+        addr = self._resolve_symbol(address_or_name)
+        func = self._get_function_by_name_or_address(address_or_name)
+
+        if addr is None and func is None:
+            raise ValueError(f"Could not resolve: {address_or_name}")
+
+        if addr:
+            # Get references TO this address
+            if direction in ("to", "both"):
+                refs = self.bv.get_code_refs(addr)
+                for ref in refs:
+                    ref_func = self.bv.get_function_at(ref.address)
+                    result["references_to"].append({
+                        "address": hex(ref.address),
+                        "function": ref_func.name if ref_func else None
+                    })
+
+            # Get references FROM this address (if it's a function)
+            if direction in ("from", "both") and func:
+                for block in func.basic_blocks:
+                    for i in range(block.start, block.end):
+                        for ref in self.bv.get_code_refs_from(i):
+                            target_func = self.bv.get_function_at(ref)
+                            result["references_from"].append({
+                                "from_address": hex(i),
+                                "to_address": hex(ref),
+                                "to_function": target_func.name if target_func else None
+                            })
+
+        # Include call graph if requested
+        if include_calls and func:
+            result["call_graph"] = {
+                "function": func.name,
+                "address": hex(func.start),
+                "callers": [],
+                "callees": []
+            }
+
+            # Get callers
+            for ref in self.bv.get_code_refs(func.start):
+                caller_func = self.bv.get_function_at(ref.address)
+                if caller_func and caller_func != func:
+                    result["call_graph"]["callers"].append({
+                        "name": caller_func.name,
+                        "address": hex(caller_func.start)
+                    })
+
+            # Get callees
+            if hasattr(func, 'callees'):
+                for callee in func.callees:
+                    result["call_graph"]["callees"].append({
+                        "name": callee.name,
+                        "address": hex(callee.start)
+                    })
+
+        return result
+
+    @handle_exceptions
+    @require_binja
+    def get_function_low_level_il(self, address_or_name: str) -> str:
+        """Get Low Level IL for a function.
+
+        Args:
+            address_or_name: Function name or address
+
+        Returns:
+            LLIL as string
+        """
+        func = self._get_function_by_name_or_address(address_or_name)
+        if not func:
+            raise ValueError(f"Function not found: {address_or_name}")
+
+        func.analysis_skipped = False
+        self.bv.update_analysis_and_wait()
+
+        if hasattr(func, 'llil') and func.llil:
+            lines = []
+            for block in func.llil:
+                for instr in block:
+                    lines.append(f"{hex(instr.address)}: {instr}")
+            return "\n".join(lines)
+
+        return "LLIL not available for this function"
+
+    @handle_exceptions
+    @require_binja
+    def search_strings(self, pattern: str, case_sensitive: bool = False) -> List[Dict[str, Any]]:
+        """Search for strings matching a pattern.
+
+        Args:
+            pattern: Search pattern (substring match)
+            case_sensitive: Whether to perform case-sensitive matching
+
+        Returns:
+            List of matching strings with address, value, and length
+        """
+        results = []
+        search_pattern = pattern if case_sensitive else pattern.lower()
+
+        for string in self.bv.strings:
+            string_value = string.value
+            compare_value = string_value if case_sensitive else string_value.lower()
+
+            if search_pattern in compare_value:
+                results.append({
+                    "address": hex(string.start),
+                    "value": string_value,
+                    "length": string.length,
+                    "type": str(string.type)
+                })
+
+        return results
+
+    @handle_exceptions
+    @require_binja
+    def search_bytes(self, pattern: str, start_address: str = "", max_results: int = 100) -> List[Dict[str, Any]]:
+        """Search for byte patterns in the binary.
+
+        Args:
+            pattern: Hex pattern to search (e.g., '90 90 90' or '909090')
+            start_address: Optional start address for search
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of matches with address and context
+        """
+        # Clean and parse the pattern
+        clean_pattern = pattern.replace(" ", "").replace("0x", "")
+        try:
+            search_bytes = bytes.fromhex(clean_pattern)
+        except ValueError:
+            raise ValueError(f"Invalid hex pattern: {pattern}")
+
+        start = self.bv.start
+        if start_address:
+            resolved = self._resolve_symbol(start_address)
+            if resolved:
+                start = resolved
+
+        results = []
+        current_addr = start
+
+        while len(results) < max_results:
+            found = self.bv.find_next_data(current_addr, search_bytes)
+            if found is None:
+                break
+
+            # Get context around the match
+            context_data = self.bv.read(found, min(16, len(search_bytes) + 8))
+            context_hex = context_data.hex() if context_data else ""
+
+            # Check if in a function
+            funcs = self.bv.get_functions_containing(found)
+            func_name = funcs[0].name if funcs else None
+
+            results.append({
+                "address": hex(found),
+                "context_hex": context_hex,
+                "function": func_name
+            })
+
+            current_addr = found + 1
+
+        return results
+
+    @handle_exceptions
+    @require_binja
+    def get_basic_blocks(self, function_name_or_address: str) -> List[Dict[str, Any]]:
+        """Get basic blocks for a function (control flow graph).
+
+        Args:
+            function_name_or_address: Function identifier
+
+        Returns:
+            List of basic blocks with addresses, instructions, and successors
+        """
+        func = self._get_function_by_name_or_address(function_name_or_address)
+        if not func:
+            raise ValueError(f"Function not found: {function_name_or_address}")
+
+        blocks = []
+        for block in func.basic_blocks:
+            block_info = {
+                "start": hex(block.start),
+                "end": hex(block.end),
+                "length": block.length,
+                "instruction_count": block.instruction_count,
+                "successors": [],
+                "predecessors": []
+            }
+
+            # Get successors
+            for edge in block.outgoing_edges:
+                if edge.target:
+                    block_info["successors"].append({
+                        "address": hex(edge.target.start),
+                        "type": str(edge.type)
+                    })
+
+            # Get predecessors
+            for edge in block.incoming_edges:
+                if edge.source:
+                    block_info["predecessors"].append({
+                        "address": hex(edge.source.start)
+                    })
+
+            blocks.append(block_info)
+
+        return blocks
+
+    @handle_exceptions
+    @require_binja
+    def get_function_stack_layout(self, function_name_or_address: str) -> Dict[str, Any]:
+        """Get stack frame layout for a function.
+
+        Args:
+            function_name_or_address: Function identifier
+
+        Returns:
+            Dictionary with stack layout information
+        """
+        func = self._get_function_by_name_or_address(function_name_or_address)
+        if not func:
+            raise ValueError(f"Function not found: {function_name_or_address}")
+
+        result = {
+            "function": func.name,
+            "address": hex(func.start),
+            "stack_variables": [],
+            "total_local_size": 0
+        }
+
+        # Get stack variables
+        for var in func.stack_layout:
+            var_info = {
+                "name": var.name,
+                "offset": var.storage,
+                "type": self._get_variable_type_safe(func, var)
+            }
+            result["stack_variables"].append(var_info)
+
+        # Calculate total local size if available
+        if hasattr(func, 'stack_adjustment'):
+            result["total_local_size"] = abs(func.stack_adjustment)
+
+        return result
+
+    @handle_exceptions
+    @require_binja
+    def batch_rename(self, renames: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        """Batch rename multiple symbols.
+
+        Args:
+            renames: List of rename operations, each with 'address_or_name' and 'new_name'
+
+        Returns:
+            List of results for each rename operation
+        """
+        results = []
+
+        for rename in renames:
+            address_or_name = rename.get("address_or_name", "")
+            new_name = rename.get("new_name", "")
+
+            if not address_or_name or not new_name:
+                results.append({
+                    "address_or_name": address_or_name,
+                    "success": False,
+                    "error": "Missing address_or_name or new_name"
+                })
+                continue
+
+            try:
+                message = self.rename_symbol(address_or_name, new_name)
+                results.append({
+                    "address_or_name": address_or_name,
+                    "new_name": new_name,
+                    "success": True,
+                    "message": message
+                })
+            except Exception as e:
+                results.append({
+                    "address_or_name": address_or_name,
+                    "success": False,
+                    "error": str(e)
+                })
+
+        return results

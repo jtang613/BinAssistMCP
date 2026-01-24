@@ -174,8 +174,8 @@ class BinAssistMCPConfig(BaseSettings):
                 )
             if not settings_manager.contains("binassistmcp.server.port"):
                 settings_manager.register_setting(
-                    "binassistmcp.server.port", 
-                    '{"description": "BinAssistMCP server port", "title": "Server Port", "default": 8000, "type": "number", "minValue": 1024, "maxValue": 65535}'
+                    "binassistmcp.server.port",
+                    '{"description": "BinAssistMCP server port", "title": "Server Port", "default": 9090, "type": "number", "minValue": 1024, "maxValue": 65535}'
                 )
             if not settings_manager.contains("binassistmcp.server.transport"):
                 settings_manager.register_setting(

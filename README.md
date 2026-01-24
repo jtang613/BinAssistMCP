@@ -4,98 +4,184 @@
 
 ## Summary
 
-BinAssistMCP is a powerful bridge between Binary Ninja and Large Language Models (LLMs) like Claude, providing comprehensive reverse engineering tools through the Model Context Protocol (MCP). It enables AI-assisted binary analysis by exposing Binary Ninja's advanced capabilities through both Server-Sent Events (SSE) and STDIO transports.
+BinAssistMCP is a powerful bridge between Binary Ninja and Large Language Models (LLMs) like Claude, providing comprehensive reverse engineering tools through the Model Context Protocol (MCP). It enables AI-assisted binary analysis by exposing Binary Ninja's advanced capabilities through Server-Sent Events (SSE) and Streamable HTTP transports.
 
 ### Key Features
 
-- **Dual Transport Support**: Both SSE (web-based) and STDIO (command-line) transports
-- **40+ Analysis Tools**: Complete Binary Ninja API wrapper with advanced functionality
+- **MCP 2025-11-25 Compliant**: Full support for tool annotations, resources, and prompts
+- **Dual Transport Support**: SSE (Server-Sent Events) and Streamable HTTP transports
+- **36 Consolidated Tools**: Streamlined Binary Ninja API wrapper with unified tool design
+- **8 MCP Resources**: Browsable, cacheable binary metadata
+- **7 Guided Prompts**: Pre-built workflows for common reverse engineering tasks
 - **Multi-Binary Sessions**: Concurrent analysis of multiple binaries with intelligent context management
-- **Smart Symbol Management**: Advanced function searching, renaming, and type management
+- **Analysis Caching**: LRU cache with binary-scoped invalidation for improved performance
+- **Async Task Support**: Non-blocking execution for long-running operations
+- **Thread-Safe**: RLock-based synchronization for concurrent access
 - **Auto-Integration**: Seamless Binary Ninja plugin with automatic startup capabilities
-- **Flexible Configuration**: Comprehensive settings management through Binary Ninja's interface
-- **AI-Ready**: Optimized for LLM integration with structured tool responses
 
 ### Use Cases
 
 - **AI-Assisted Reverse Engineering**: Leverage LLMs for intelligent code analysis and documentation
+- **Protocol Analysis**: Trace network data flows and reconstruct protocol structures
+- **Vulnerability Research**: Systematic security audits with guided workflows
 - **Automated Binary Analysis**: Script complex analysis workflows with natural language
-- **Research and Education**: Teach reverse engineering concepts with AI guidance
-- **Security Analysis**: Accelerate vulnerability research and malware analysis
 - **Code Understanding**: Generate comprehensive documentation and explanations
 
-## Tool Details
+---
 
-BinAssistMCP provides over 40 specialized tools organized into functional categories:
+## Architecture
+
+```
+src/binassist_mcp/
+├── server.py        # FastMCP server - SSE/Streamable HTTP transport, tool registration
+├── tools.py         # Binary Ninja API wrapper - 36 MCP tools
+├── plugin.py        # Binary Ninja plugin integration
+├── context.py       # Thread-safe multi-binary session management
+├── config.py        # Pydantic configuration with Binary Ninja settings
+├── prompts.py       # 7 guided workflow prompts
+├── resources.py     # 8 MCP resource definitions
+├── cache.py         # LRU analysis cache with invalidation
+├── tasks.py         # Async task manager for long-running operations
+├── logging.py       # Binary Ninja logging integration
+└── utils.py         # Utility functions
+
+__init__.py          # Plugin entry point (root level)
+```
+
+---
+
+## Tools (36 Total)
+
+BinAssistMCP provides 36 tools organized into functional categories. Tools include MCP annotations (`readOnlyHint`, `idempotentHint`) to help clients make informed decisions.
 
 ### Binary Management
-- **`list_binaries`** - List all loaded binary files
-- **`get_binary_status`** - Check analysis status and metadata
-- **`update_analysis_and_wait`** - Force analysis update and wait for completion
+| Tool | Description |
+|------|-------------|
+| `list_binaries` | List all loaded binary files |
+| `get_binary_status` | Check analysis status and metadata |
+| `update_analysis_and_wait` | Force analysis update and wait for completion |
 
-### Code Analysis & Decompilation
-- **`decompile_function`** - Generate high-level decompiled code
-- **`get_function_pseudo_c`** - Extract pseudo-C representation
-- **`get_function_high_level_il`** - Access High-Level Intermediate Language
-- **`get_function_medium_level_il`** - Access Medium-Level Intermediate Language
-- **`get_disassembly`** - Retrieve assembly code with annotations
+### Code Analysis (Consolidated)
+| Tool | Description |
+|------|-------------|
+| `get_code` | **Unified code retrieval** - supports formats: `decompile`, `hlil`, `mlil`, `llil`, `disasm`, `pseudo_c` |
+| `get_function_low_level_il` | Get Low-Level IL for a function |
+| `analyze_function` | Comprehensive function analysis with control flow and complexity metrics |
+| `get_basic_blocks` | Get basic block information for control flow analysis |
+| `get_function_stack_layout` | Get stack frame layout with variable offsets |
 
-### Information Retrieval
-- **`get_functions`** - List all functions with metadata
-- **`search_functions_by_name`** - Find functions by name patterns
-- **`get_functions_advanced`** - Advanced filtering (size, complexity, parameters)
-- **`search_functions_advanced`** - Multi-target searching (name, comments, calls, variables)
-- **`get_function_statistics`** - Comprehensive binary statistics
-- **`get_imports`** - Import table analysis grouped by module
-- **`get_exports`** - Export table with symbol information
-- **`get_strings`** - String extraction with context
-- **`get_segments`** - Memory layout analysis
-- **`get_sections`** - Binary section information
+### Cross-References (Consolidated)
+| Tool | Description |
+|------|-------------|
+| `xrefs_tool` | **Unified cross-references** - actions: `refs_to`, `refs_from`, `call_graph` |
 
-### Symbol & Naming Management
-- **`rename_symbol`** - Rename functions and data variables
-- **`get_cross_references`** - Find all references to/from symbols
-- **`analyze_function`** - Comprehensive function analysis
-- **`get_call_graph`** - Call relationship mapping
+### Comments (Consolidated)
+| Tool | Description |
+|------|-------------|
+| `comments_tool` | **Unified comment management** - actions: `get`, `set`, `list`, `remove`, `set_function` |
 
-### Documentation & Comments
-- **`set_comment`** - Add comments to specific addresses
-- **`get_comment`** - Retrieve comments at addresses
-- **`get_all_comments`** - Export all comments with context
-- **`remove_comment`** - Delete existing comments
-- **`set_function_comment`** - Add function-level documentation
+### Variables (Consolidated)
+| Tool | Description |
+|------|-------------|
+| `variables_tool` | **Unified variable management** - actions: `list`, `create`, `rename`, `set_type` |
 
-### Variable Management
-- **`create_variable`** - Define local variables in functions
-- **`get_variables`** - List function parameters and locals
-- **`rename_variable`** - Rename variables for clarity
-- **`set_variable_type`** - Update variable type information
+### Types (Consolidated)
+| Tool | Description |
+|------|-------------|
+| `types_tool` | **Unified type management** - actions: `create`, `create_enum`, `create_typedef`, `create_class`, `add_member`, `get_info`, `list` |
+| `get_classes` | List all classes and structures |
 
-### Type System Management
-- **`create_type`** - Define custom types and structures
-- **`get_types`** - List all user-defined types
-- **`create_enum`** - Create enumeration types
-- **`create_typedef`** - Create type aliases
-- **`get_type_info`** - Detailed type information
-- **`get_classes`** - List classes and structures
-- **`create_class`** - Define new classes/structures
-- **`add_class_member`** - Add members to existing types
+### Function Discovery
+| Tool | Description |
+|------|-------------|
+| `get_functions` | List all functions with metadata (paginated) |
+| `search_functions_by_name` | Find functions by name pattern |
+| `get_functions_advanced` | Advanced filtering by size, complexity, parameters |
+| `search_functions_advanced` | Multi-target search (name, comments, calls, variables) |
+| `get_function_statistics` | Comprehensive statistics for all functions |
+
+### Symbol Management
+| Tool | Description |
+|------|-------------|
+| `rename_symbol` | Rename functions and data variables |
+| `batch_rename` | Rename multiple symbols in one operation |
+| `get_namespaces` | List namespaces and symbol organization |
+
+### Binary Information
+| Tool | Description |
+|------|-------------|
+| `get_imports` | Import table grouped by module |
+| `get_exports` | Export table with symbol information |
+| `get_strings` | String extraction with filtering |
+| `search_strings` | Search strings by pattern |
+| `get_segments` | Memory segment layout |
+| `get_sections` | Binary section information |
 
 ### Data Analysis
-- **`create_data_var`** - Define data variables at addresses
-- **`get_data_vars`** - List all defined data variables
-- **`get_data_at_address`** - Analyze raw data with type inference
+| Tool | Description |
+|------|-------------|
+| `create_data_var` | Define data variables at addresses |
+| `get_data_vars` | List all defined data variables |
+| `get_data_at_address` | Read and analyze raw data |
+| `search_bytes` | Search for byte patterns in binary |
 
-### Navigation & Context
-- **`get_current_address`** - Get current cursor position
-- **`get_current_function`** - Identify function at current address
-- **`get_namespaces`** - Namespace and symbol organization
+### Navigation
+| Tool | Description |
+|------|-------------|
+| `get_current_address` | Get current cursor position with context |
+| `get_current_function` | Identify function at current address |
 
-### Advanced Analysis
-- **`get_triage_summary`** - Complete binary overview
-- **`get_function_statistics`** - Statistical analysis of all functions
+### Task Management
+| Tool | Description |
+|------|-------------|
+| `get_task_status` | Check status of async operations |
+| `list_tasks` | List all pending/running tasks |
+| `cancel_task` | Cancel a running task |
 
-Each tool is designed for seamless integration with AI workflows, providing structured responses that LLMs can easily interpret and act upon.
+---
+
+## MCP Resources (8 Total)
+
+Resources provide browsable, cacheable data that clients can access without tool calls.
+
+| URI Pattern | Description |
+|-------------|-------------|
+| `binassist://{filename}/triage_summary` | Complete binary overview |
+| `binassist://{filename}/functions` | All functions with metadata |
+| `binassist://{filename}/imports` | Import table |
+| `binassist://{filename}/exports` | Export table |
+| `binassist://{filename}/strings` | String table |
+| `binja://{filename}/info` | Binary metadata (arch, platform, entry point) |
+| `binja://{filename}/segments` | Memory segments with permissions |
+| `binja://{filename}/sections` | Binary sections |
+
+---
+
+## MCP Prompts (7 Total)
+
+Pre-built prompts guide LLMs through structured analysis workflows.
+
+| Prompt | Arguments | Description |
+|--------|-----------|-------------|
+| `analyze_function` | `function_name`, `filename` | Comprehensive function analysis workflow |
+| `identify_vulnerability` | `function_name`, `filename` | Security audit checklist (memory safety, input validation, crypto) |
+| `document_function` | `function_name`, `filename` | Generate Doxygen-style documentation |
+| `trace_data_flow` | `address`, `filename` | Track data dependencies and taint propagation |
+| `compare_functions` | `func1`, `func2`, `filename` | Diff two functions for similarity analysis |
+| `reverse_engineer_struct` | `address`, `filename` | Recover structure definitions from usage patterns |
+| `trace_network_data` | `filename` | Trace POSIX/Winsock send/recv for protocol analysis |
+
+### Example: Network Protocol Analysis
+
+The `trace_network_data` prompt guides analysis of network communication:
+
+1. **Identify Network Functions**: Finds POSIX (`send`/`recv`/`sendto`/`recvfrom`) and Winsock (`WSASend`/`WSARecv`) calls
+2. **Trace Call Stacks**: Maps application handlers down to network I/O
+3. **Analyze Buffers**: Identifies protocol structures (headers, length fields, TLV encoding)
+4. **Reconstruct Protocols**: Generates C struct definitions for message formats
+5. **Security Assessment**: Checks for buffer overflows, integer issues, information disclosure
+
+---
 
 ## Installation
 
@@ -104,6 +190,8 @@ Each tool is designed for seamless integration with AI workflows, providing stru
 - **Binary Ninja**: Version 4000 or higher
 - **Python**: 3.8+ (typically bundled with Binary Ninja)
 - **Platform**: Windows, macOS, or Linux
+
+NOTE: Windows users should start with: [BinAssistMCP on Windows](binassistmcp-on-windows.md)
 
 ### Option 1: Binary Ninja Plugin Manager (Recommended)
 
@@ -115,160 +203,158 @@ Each tool is designed for seamless integration with AI workflows, providing stru
 
 ### Option 2: Manual Installation
 
-#### Step 1: Download and Extract
 ```bash
+# Clone the repository
 git clone https://github.com/jtang613/BinAssistMCP.git
 cd BinAssistMCP
-```
 
-#### Step 2: Install Dependencies
-```bash
-# Install Python dependencies
+# Install dependencies
 pip install -r requirements.txt
-
-# Or install individually:
-pip install anyio>=4.0.0 hypercorn>=0.16.0 mcp>=1.0.0 trio>=0.27.0 pydantic>=2.0.0 pydantic-settings>=2.0.0 click>=8.0.0
 ```
 
-#### Step 3: Copy to Plugin Directory
+Copy to your Binary Ninja plugins directory:
 
-**Windows:**
-```cmd
-copy BinAssistMCP "%APPDATA%\Binary Ninja\plugins\"
-```
+| Platform | Path |
+|----------|------|
+| Windows | `%APPDATA%\Binary Ninja\plugins\` |
+| macOS | `~/Library/Application Support/Binary Ninja/plugins/` |
+| Linux | `~/.binaryninja/plugins/` |
 
-**macOS:**
+---
+
+## Configuration
+
+### Binary Ninja Settings
+
+Open **Edit** → **Preferences** → **binassistmcp**:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `server.host` | `localhost` | Server bind address |
+| `server.port` | `9090` | Server port |
+| `server.transport` | `streamablehttp` | Transport: `streamablehttp` or `sse` |
+| `binary.max_binaries` | `10` | Maximum concurrent binaries |
+| `plugin.auto_startup` | `true` | Auto-start server on file load |
+
+### Environment Variables
+
 ```bash
-cp -r BinAssistMCP ~/Library/Application\ Support/Binary\ Ninja/plugins/
-```
-
-**Linux:**
-```bash
-cp -r BinAssistMCP ~/.binaryninja/plugins/
-```
-
-#### Step 4: Verify Installation
-
-1. Restart Binary Ninja
-2. Open any binary file
-3. Check **Tools** menu for "BinAssistMCP" submenu
-4. Look for startup messages in the log panel
-
-### Configuration
-
-#### Basic Setup
-
-1. Open Binary Ninja Settings (**Edit** → **Preferences**)
-2. Navigate to the **binassistmcp** section
-3. Configure server settings:
-   - **Host**: `localhost` (default)
-   - **Port**: `9090` (default)
-   - **Transport**: `both` (SSE + STDIO)
-
-#### Advanced Configuration
-
-```python
-# Environment variables (optional)
 export BINASSISTMCP_SERVER__HOST=localhost
 export BINASSISTMCP_SERVER__PORT=9090
-export BINASSISTMCP_SERVER__TRANSPORT=both
+export BINASSISTMCP_SERVER__TRANSPORT=streamablehttp
 export BINASSISTMCP_BINARY__MAX_BINARIES=10
 ```
 
-### Usage
+---
 
-#### Starting the Server
+## Usage
+
+### Starting the Server
 
 **Via Binary Ninja Menu:**
 1. **Tools** → **BinAssistMCP** → **Start Server**
-2. Check log panel for startup confirmation
-3. Note the server URL (e.g., `http://localhost:9090`)
+2. Check log panel for: `BinAssistMCP server started on http://localhost:9090`
 
-**Auto-Startup (Default):**
-- Server starts automatically when Binary Ninja loads a file
-- Configurable via settings: `binassistmcp.plugin.auto_startup`
+**Auto-Startup:**
+Server starts automatically when Binary Ninja loads a file (configurable).
 
-#### Connecting with Claude Desktop
+### Connecting MCP Clients
 
-Add to your Claude Desktop MCP configuration:
+**Streamable HTTP (Default):**
+```
+http://localhost:9090/mcp
+```
+
+**Server-Sent Events:**
+```
+http://localhost:9090/sse
+```
+
+### Claude Desktop Configuration
+
+Add to your Claude Desktop MCP configuration (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "binassist": {
-      "command": "python",
-      "args": ["/path/to/BinAssistMCP"],
-      "env": {
-        "BINASSISTMCP_SERVER__TRANSPORT": "stdio"
-      }
+      "url": "http://localhost:9090/mcp"
     }
   }
 }
 ```
 
-#### Using with SSE Transport
+---
 
-Connect web-based MCP clients to:
+## Integration Examples
+
+### Basic Function Analysis
 ```
-http://localhost:9090/sse
-```
+User: "Analyze the main function and explain what it does"
 
-### Integration Examples
-
-#### Basic Function Analysis
-```
-Ask Claude: "Analyze the main function in the loaded binary and explain what it does"
-
-Claude will use tools like:
-- get_functions() to find main
-- decompile_function() to get readable code
-- get_function_pseudo_c() for C representation
-- analyze_function() for comprehensive analysis
+Claude uses:
+1. get_functions() - find main
+2. get_code(format='decompile') - get readable code
+3. xrefs_tool(action='refs_from') - find called functions
+4. analyze_function() - get complexity metrics
 ```
 
-#### Vulnerability Research
+### Vulnerability Research
 ```
-Ask Claude: "Find all functions that handle user input and check for buffer overflows"
+User: "Find buffer overflow vulnerabilities in input handling functions"
 
-Claude will use:
-- search_functions_advanced() to find input handlers
-- get_cross_references() to trace data flow
-- get_variables() to analyze buffer usage
-- set_comment() to document findings
+Claude uses:
+1. search_functions_advanced(search_in='calls') - find memcpy/strcpy callers
+2. get_code(format='decompile') - examine implementations
+3. variables_tool(action='list') - check buffer sizes
+4. comments_tool(action='set') - document findings
 ```
 
-### Troubleshooting
+### Protocol Reverse Engineering
+```
+User: "Analyze the network protocol used by this binary"
 
-#### Common Issues
+Claude uses the trace_network_data prompt:
+1. Identifies send/recv call sites
+2. Traces data flow from handlers to network I/O
+3. Reconstructs message structures
+4. Checks for network vulnerabilities
+```
 
-**Server won't start:**
-- Check Binary Ninja log panel for error messages
-- Verify all dependencies are installed
-- Ensure port 9090 is not in use
+---
 
-**Binary Ninja crashes:**
-- Check Python environment compatibility
-- Try reducing `max_binaries` setting
-- Restart with a single binary file
+## Troubleshooting
 
-**Tools return errors:**
-- Ensure binary analysis is complete
-- Check if Binary Ninja file is still open
-- Verify function/address exists
+### Server Issues
 
-#### Support
+| Problem | Solution |
+|---------|----------|
+| Server won't start | Check port 9090 availability, verify dependencies |
+| Connection refused | Ensure server is running, check firewall settings |
+| Tools return errors | Wait for analysis completion, verify binary is loaded |
 
-- **Issues**: Report bugs on GitHub Issues
-- **Binary Ninja**: Check official Binary Ninja documentation
+### Performance
 
-### Contributing
+- **Slow decompilation**: Results are cached; second request is faster
+- **Memory usage**: Reduce `max_binaries` setting
+- **Long operations**: Check task status with `get_task_status`
+
+### Logs
+
+Check Binary Ninja's Log panel for detailed error messages.
+
+---
+
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes following the existing code style
+3. Follow existing code patterns (Pydantic models, type hints, docstrings)
 4. Test with multiple binary types
 5. Submit a pull request
 
-### License
+---
+
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

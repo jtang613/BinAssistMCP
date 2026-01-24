@@ -5,6 +5,7 @@ This module provides context management for multiple Binary Ninja BinaryViews
 with automatic name deduplication and lifecycle management.
 """
 
+import threading
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from pathlib import Path
@@ -40,148 +41,157 @@ class BinAssistMCPBinaryContextManager:
     
     def __init__(self, max_binaries: int = 10):
         """Initialize the context manager
-        
+
         Args:
             max_binaries: Maximum number of binaries to keep loaded
         """
         self.max_binaries = max_binaries
         self._binaries: Dict[str, BinaryInfo] = {}
         self._name_counter: Dict[str, int] = {}
+        self._lock = threading.RLock()  # Thread safety for binary operations
         
     def add_binary(self, binary_view: object, name: Optional[str] = None) -> str:
         """Add a BinaryView to the context with automatic name deduplication
-        
+
         Args:
             binary_view: The BinaryView to add
             name: Optional name to use (defaults to filename)
-            
+
         Returns:
             The name used for the BinaryView
         """
         if not BINJA_AVAILABLE:
             raise RuntimeError("Binary Ninja not available")
-            
+
         if name is None:
             name = self._extract_name(binary_view)
-            
+
         # Sanitize name for URL usage
         sanitized_name = self._sanitize_name(name)
-        
-        # Deduplicate name if needed
-        unique_name = self._get_unique_name(sanitized_name)
-        
-        # Check if we need to evict old binaries
-        if len(self._binaries) >= self.max_binaries:
-            self._evict_oldest_binary()
-            
-        # Add binary info
-        import time
-        binary_info = BinaryInfo(
-            name=unique_name,
-            view=binary_view,
-            file_path=self._get_file_path(binary_view),
-            load_time=time.time(),
-            analysis_complete=self._is_analysis_complete(binary_view)
-        )
-        
-        self._binaries[unique_name] = binary_info
-        log.log_info(f"Added binary '{unique_name}' to context (total: {len(self._binaries)})")
-        
-        return unique_name
+
+        with self._lock:
+            # Deduplicate name if needed
+            unique_name = self._get_unique_name(sanitized_name)
+
+            # Check if we need to evict old binaries
+            if len(self._binaries) >= self.max_binaries:
+                self._evict_oldest_binary()
+
+            # Add binary info
+            import time
+            binary_info = BinaryInfo(
+                name=unique_name,
+                view=binary_view,
+                file_path=self._get_file_path(binary_view),
+                load_time=time.time(),
+                analysis_complete=self._is_analysis_complete(binary_view)
+            )
+
+            self._binaries[unique_name] = binary_info
+            log.log_info(f"Added binary '{unique_name}' to context (total: {len(self._binaries)})")
+
+            return unique_name
         
     def get_binary(self, name: str) -> object:
         """Get a BinaryView by name
-        
+
         Args:
             name: The name of the BinaryView
-            
+
         Returns:
             The BinaryView if found
-            
+
         Raises:
             KeyError: If the binary is not found
         """
-        if name not in self._binaries:
-            available = ", ".join(self._binaries.keys()) if self._binaries else "none"
-            raise KeyError(f"Binary '{name}' not found. Available: {available}")
-            
-        binary_info = self._binaries[name]
-        
-        # Verify the binary view is still valid
-        if not self._is_binary_valid(binary_info.view):
-            log.log_warn(f"Binary '{name}' is no longer valid, removing from context")
-            del self._binaries[name]
-            raise KeyError(f"Binary '{name}' is no longer valid")
-            
-        return binary_info.view
+        with self._lock:
+            if name not in self._binaries:
+                available = ", ".join(self._binaries.keys()) if self._binaries else "none"
+                raise KeyError(f"Binary '{name}' not found. Available: {available}")
+
+            binary_info = self._binaries[name]
+
+            # Verify the binary view is still valid
+            if not self._is_binary_valid(binary_info.view):
+                log.log_warn(f"Binary '{name}' is no longer valid, removing from context")
+                del self._binaries[name]
+                raise KeyError(f"Binary '{name}' is no longer valid")
+
+            return binary_info.view
         
     def get_binary_info(self, name: str) -> BinaryInfo:
         """Get binary information by name
-        
+
         Args:
             name: The name of the binary
-            
+
         Returns:
             BinaryInfo object
-            
+
         Raises:
             KeyError: If the binary is not found
         """
-        if name not in self._binaries:
-            available = ", ".join(self._binaries.keys()) if self._binaries else "none"
-            raise KeyError(f"Binary '{name}' not found. Available: {available}")
-            
-        return self._binaries[name]
-        
+        with self._lock:
+            if name not in self._binaries:
+                available = ", ".join(self._binaries.keys()) if self._binaries else "none"
+                raise KeyError(f"Binary '{name}' not found. Available: {available}")
+
+            return self._binaries[name]
+
     def list_binaries(self) -> List[str]:
         """List all loaded binary names
-        
+
         Returns:
             List of binary names
         """
-        return list(self._binaries.keys())
-        
+        with self._lock:
+            return list(self._binaries.keys())
+
     def list_binary_info(self) -> Dict[str, BinaryInfo]:
         """Get information about all loaded binaries
-        
+
         Returns:
             Dictionary mapping names to BinaryInfo objects
         """
-        return self._binaries.copy()
-        
+        with self._lock:
+            return self._binaries.copy()
+
     def remove_binary(self, name: str) -> bool:
         """Remove a binary from the context
-        
+
         Args:
             name: Name of the binary to remove
-            
+
         Returns:
             True if removed, False if not found
         """
-        if name in self._binaries:
-            del self._binaries[name]
-            log.log_info(f"Removed binary '{name}' from context")
-            return True
-        return False
-        
+        with self._lock:
+            if name in self._binaries:
+                del self._binaries[name]
+                log.log_info(f"Removed binary '{name}' from context")
+                return True
+            return False
+
     def clear(self):
         """Clear all binaries from the context"""
-        count = len(self._binaries)
-        self._binaries.clear()
-        self._name_counter.clear()
-        log.log_info(f"Cleared {count} binaries from context")
-        
+        with self._lock:
+            count = len(self._binaries)
+            self._binaries.clear()
+            self._name_counter.clear()
+            log.log_info(f"Cleared {count} binaries from context")
+
     def update_analysis_status(self, name: str):
         """Update the analysis status for a binary
-        
+
         Args:
             name: Name of the binary to update
         """
-        if name in self._binaries:
-            binary_info = self._binaries[name]
-            if binary_info.view:
-                binary_info.analysis_complete = self._is_analysis_complete(binary_info.view)
-                log.log_debug(f"Updated analysis status for '{name}': {binary_info.analysis_complete}")
+        with self._lock:
+            if name in self._binaries:
+                binary_info = self._binaries[name]
+                if binary_info.view:
+                    binary_info.analysis_complete = self._is_analysis_complete(binary_info.view)
+                    log.log_debug(f"Updated analysis status for '{name}': {binary_info.analysis_complete}")
                 
     def _extract_name(self, binary_view: object) -> str:
         """Extract name from a BinaryView"""
@@ -325,12 +335,15 @@ class BinAssistMCPBinaryContextManager:
             
     def __len__(self) -> int:
         """Return the number of loaded binaries"""
-        return len(self._binaries)
-        
+        with self._lock:
+            return len(self._binaries)
+
     def __contains__(self, name: str) -> bool:
         """Check if a binary name is in the context"""
-        return name in self._binaries
-        
+        with self._lock:
+            return name in self._binaries
+
     def __repr__(self) -> str:
         """String representation of the context manager"""
-        return f"BinaryContextManager(binaries={len(self._binaries)}, max={self.max_binaries})"
+        with self._lock:
+            return f"BinaryContextManager(binaries={len(self._binaries)}, max={self.max_binaries})"
