@@ -347,3 +347,141 @@ class BinAssistMCPBinaryContextManager:
         """String representation of the context manager"""
         with self._lock:
             return f"BinaryContextManager(binaries={len(self._binaries)}, max={self.max_binaries})"
+
+    def sync_with_binja(self) -> dict:
+        """Synchronize context with Binary Ninja's currently open views.
+
+        Enumerates all open BinaryViews via Binary Ninja UI context,
+        adds newly opened binaries to context, and removes closed/invalid
+        binaries from context.
+
+        Returns:
+            Dictionary with sync status report:
+            - added: list of newly added binary names
+            - removed: list of removed binary names
+            - unchanged: list of binaries that remained
+            - synced: bool indicating if sync was performed
+            - error: optional error message if sync failed
+        """
+        result = {
+            "added": [],
+            "removed": [],
+            "unchanged": [],
+            "synced": False,
+            "error": None
+        }
+
+        if not BINJA_AVAILABLE:
+            result["error"] = "Binary Ninja not available"
+            return result
+
+        # Try to access UI context for open views
+        try:
+            from binaryninjaui import UIContext
+            ui_available = True
+        except ImportError:
+            ui_available = False
+            log.log_debug("binaryninjaui not available, running in headless mode")
+
+        with self._lock:
+            # First, remove invalid/closed binaries from context
+            names_to_remove = []
+            for name, binary_info in self._binaries.items():
+                if not self._is_binary_valid(binary_info.view):
+                    names_to_remove.append(name)
+
+            for name in names_to_remove:
+                del self._binaries[name]
+                result["removed"].append(name)
+                log.log_info(f"Removed invalid/closed binary '{name}' from context")
+
+            # If UI is available, enumerate open views and add new ones
+            if ui_available:
+                try:
+                    ctx = UIContext.activeContext()
+                    if ctx is not None:
+                        # Get all available binary views from the UI context
+                        # Try different methods to get open views
+                        open_views = []
+
+                        # Method 1: getAvailableBinaryViews (preferred)
+                        if hasattr(ctx, 'getAvailableBinaryViews'):
+                            open_views = ctx.getAvailableBinaryViews()
+                        # Method 2: getAllOpenBinaryViews
+                        elif hasattr(ctx, 'getAllOpenBinaryViews'):
+                            open_views = ctx.getAllOpenBinaryViews()
+                        # Method 3: Iterate through view frames
+                        elif hasattr(ctx, 'viewFrames'):
+                            for frame in ctx.viewFrames():
+                                if hasattr(frame, 'getCurrentBinaryView'):
+                                    bv = frame.getCurrentBinaryView()
+                                    if bv is not None:
+                                        open_views.append(bv)
+
+                        # Build a set of file paths currently in context for comparison
+                        context_paths = set()
+                        for binary_info in self._binaries.values():
+                            if binary_info.file_path:
+                                context_paths.add(str(binary_info.file_path))
+
+                        # Add any open views not already in context
+                        for bv in open_views:
+                            if bv is None:
+                                continue
+
+                            file_path = self._get_file_path(bv)
+                            file_path_str = str(file_path) if file_path else None
+
+                            # Check if this view is already in context (by path)
+                            if file_path_str and file_path_str in context_paths:
+                                continue
+
+                            # Check if view object is already tracked
+                            already_tracked = False
+                            for binary_info in self._binaries.values():
+                                if binary_info.view is bv:
+                                    already_tracked = True
+                                    break
+
+                            if already_tracked:
+                                continue
+
+                            # Add this new binary
+                            try:
+                                name = self._extract_name(bv)
+                                sanitized_name = self._sanitize_name(name)
+                                unique_name = self._get_unique_name(sanitized_name)
+
+                                # Check if we need to evict old binaries
+                                if len(self._binaries) >= self.max_binaries:
+                                    self._evict_oldest_binary()
+
+                                import time
+                                binary_info = BinaryInfo(
+                                    name=unique_name,
+                                    view=bv,
+                                    file_path=file_path,
+                                    load_time=time.time(),
+                                    analysis_complete=self._is_analysis_complete(bv)
+                                )
+
+                                self._binaries[unique_name] = binary_info
+                                result["added"].append(unique_name)
+                                log.log_info(f"Added newly opened binary '{unique_name}' to context")
+                            except Exception as add_error:
+                                log.log_warn(f"Failed to add binary view to context: {add_error}")
+                    else:
+                        log.log_debug("No active UI context available")
+                except Exception as ui_error:
+                    log.log_debug(f"Error accessing UI context: {ui_error}")
+                    result["error"] = f"UI context error: {ui_error}"
+
+            # Record unchanged binaries
+            for name in self._binaries.keys():
+                if name not in result["added"]:
+                    result["unchanged"].append(name)
+
+            result["synced"] = True
+            log.log_debug(f"Sync complete: added={len(result['added'])}, removed={len(result['removed'])}, unchanged={len(result['unchanged'])}")
+
+        return result

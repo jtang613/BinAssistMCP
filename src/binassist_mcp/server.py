@@ -60,31 +60,31 @@ class ResourceManagedASGIApp:
         try:
             await self.app(scope, receive, wrapped_send)
         except BaseException as e:
-            # Handle both exception groups and regular exceptions
+            # Handle both exception groups and regular exceptions.
+            # IMPORTANT: Request-level errors should NEVER terminate the server.
+            # We catch all exceptions here, log appropriately, and return gracefully.
             import sys
-            if sys.version_info >= (3, 11):
-                # Check if this is an ExceptionGroup
-                if isinstance(e, BaseExceptionGroup):
-                    log.log_error(f"ASGI exception group: {e}")
-                    all_connection_errors = True
-                    for exc in e.exceptions:
-                        error_msg = str(exc)
-                        # Check for all types of expected ASGI/connection errors
-                        if ("ASGIHTTPState" in error_msg or
-                            "connection" in error_msg.lower() or
-                            "closed" in error_msg.lower() or
-                            "response already" in error_msg.lower() or
-                            "Unexpected message type" in error_msg):
-                            log.log_debug(f"Client disconnect or ASGI state error (expected): {exc}")
-                        else:
-                            log.log_error(f"Unexpected exception in group: {exc}")
-                            all_connection_errors = False
-                    # Don't re-raise if all errors are connection-related
-                    if all_connection_errors:
-                        log.log_debug("All exceptions are connection-related, suppressing")
-                        return
+            import traceback
+
+            if sys.version_info >= (3, 11) and isinstance(e, BaseExceptionGroup):
+                # Handle exception groups (Python 3.11+)
+                log.log_debug(f"ASGI exception group during request: {e}")
+                for exc in e.exceptions:
+                    error_msg = str(exc)
+                    # Check for all types of expected ASGI/connection errors
+                    if ("ASGIHTTPState" in error_msg or
+                        "connection" in error_msg.lower() or
+                        "closed" in error_msg.lower() or
+                        "response already" in error_msg.lower() or
+                        "Unexpected message type" in error_msg or
+                        "cancelled" in error_msg.lower() or
+                        isinstance(exc, asyncio.CancelledError)):
+                        log.log_debug(f"Client disconnect or ASGI state error (expected): {exc}")
                     else:
-                        raise
+                        log.log_warn(f"Unexpected exception in request group: {exc}")
+                        log.log_debug(f"Traceback: {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+                # Always return gracefully - don't let request errors kill the server
+                return
 
             # Handle single exceptions
             error_msg = str(e)
@@ -93,14 +93,19 @@ class ResourceManagedASGIApp:
                 "connection" in error_msg.lower() or
                 "closed" in error_msg.lower() or
                 "response already" in error_msg.lower() or
-                "Unexpected message type" in error_msg):
+                "Unexpected message type" in error_msg or
+                "cancelled" in error_msg.lower() or
+                isinstance(e, asyncio.CancelledError)):
                 log.log_debug(f"Client disconnect or ASGI state error (expected): {e}")
             else:
-                # Log unexpected errors with full details
-                log.log_error(f"Unexpected ASGI exception: {e}")
-                import traceback
-                log.log_error(f"Traceback: {traceback.format_exc()}")
-            # Don't re-raise connection errors as they're expected during shutdown
+                # Log unexpected errors with full details, but still don't re-raise
+                log.log_warn(f"Unexpected ASGI exception during request: {e}")
+                log.log_debug(f"Traceback: {traceback.format_exc()}")
+
+            # ALWAYS return gracefully - individual request failures should never
+            # propagate up and terminate the server. The server should continue
+            # serving other requests.
+            return
         finally:
             # Clean up response tracking
             self._response_started.pop(scope_id, None)
@@ -121,7 +126,14 @@ except ImportError:
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryContextManager]:
-    """Application lifecycle manager for the MCP server"""
+    """Application lifecycle manager for the MCP server.
+
+    This context manager handles the server's binary context throughout its lifetime.
+    Exception handling is designed to be resilient:
+    - Connection-related errors during request handling are logged but suppressed
+    - The finally block only runs on actual shutdown, not on suppressed errors
+    - Unrecoverable errors are re-raised to properly signal shutdown
+    """
     context_manager = BinAssistMCPBinaryContextManager(
         max_binaries=getattr(server, '_config', BinAssistMCPConfig()).binary.max_binaries
     )
@@ -138,30 +150,65 @@ async def server_lifespan(server: FastMCP) -> AsyncIterator[BinAssistMCPBinaryCo
 
     try:
         yield context_manager
+    except asyncio.CancelledError:
+        # CancelledError indicates graceful shutdown - don't log as error
+        log.log_debug("Server lifespan received CancelledError (graceful shutdown)")
+        # Re-raise to trigger finally block for cleanup
+        raise
+    except KeyboardInterrupt:
+        # KeyboardInterrupt indicates user-initiated shutdown
+        log.log_info("Server lifespan received KeyboardInterrupt")
+        raise
     except BaseException as e:
         # Handle both exception groups and regular exceptions
         import sys
-        if sys.version_info >= (3, 11):
-            # Check if this is an ExceptionGroup
-            if isinstance(e, BaseExceptionGroup):
-                log.log_error(f"Server lifespan TaskGroup error: {e}")
-                all_connection_errors = True
-                for exc in e.exceptions:
-                    log.log_error(f"Lifespan sub-exception: {exc}")
-                    if not ("connection" in str(exc).lower() or "closed" in str(exc).lower()):
-                        all_connection_errors = False
-                # Don't re-raise if these are just connection errors
-                if all_connection_errors:
-                    log.log_debug("All lifespan exceptions are connection-related, suppressing")
-                    return
-                else:
-                    raise
-
-        # Handle regular exceptions
-        log.log_error(f"Server lifespan error: {e}")
         import traceback
-        log.log_error(f"Lifespan traceback: {traceback.format_exc()}")
-        raise
+
+        if sys.version_info >= (3, 11) and isinstance(e, BaseExceptionGroup):
+            # Check if this is an ExceptionGroup
+            log.log_warn(f"Server lifespan TaskGroup error: {e}")
+            all_connection_errors = True
+            for exc in e.exceptions:
+                error_msg = str(exc).lower()
+                is_connection_error = (
+                    "connection" in error_msg or
+                    "closed" in error_msg or
+                    "cancelled" in error_msg or
+                    "ASGIHTTPState" in str(exc) or
+                    isinstance(exc, asyncio.CancelledError)
+                )
+                if is_connection_error:
+                    log.log_debug(f"Connection-related lifespan sub-exception (suppressed): {exc}")
+                else:
+                    log.log_error(f"Lifespan sub-exception: {exc}")
+                    log.log_error(f"Traceback: {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+                    all_connection_errors = False
+
+            if all_connection_errors:
+                # All errors are connection-related - these happen during normal
+                # multi-binary operation. Log and suppress, but DON'T return early.
+                # Let the context manager continue running.
+                log.log_debug("All lifespan exceptions are connection-related, suppressing (server continues)")
+                # NOTE: We do NOT return here - that would exit the context manager
+                # and trigger the finally block, shutting down the server.
+                # Instead, we suppress by not re-raising.
+            else:
+                # Some errors are not connection-related - re-raise
+                raise
+        else:
+            # Handle regular exceptions
+            error_msg = str(e).lower()
+            is_connection_error = (
+                "connection" in error_msg or
+                "closed" in error_msg or
+                "cancelled" in error_msg
+            )
+            if is_connection_error:
+                log.log_debug(f"Connection-related lifespan error (suppressed): {e}")
+            else:
+                log.log_error(f"Server lifespan error: {e}")
+                log.log_error(f"Lifespan traceback: {traceback.format_exc()}")
+                raise
     finally:
         try:
             log.log_info("Shutting down server, clearing binary context")
@@ -225,40 +272,116 @@ class SSEServerThread(Thread):
             log.log_error(f"SSE server traceback: {traceback.format_exc()}")
             
     async def _run_server(self):
-        """Async server runner with improved resource cleanup"""
-        try:
-            await serve(
-                self.asgi_app,
-                self.hypercorn_config,
-                shutdown_trigger=self._shutdown_trigger
-            )
-        except BaseException as e:
-            # Handle both exception groups and regular exceptions
-            import sys
-            import traceback
-            if sys.version_info >= (3, 11):
-                # Check if this is an ExceptionGroup
-                if isinstance(e, BaseExceptionGroup):
-                    log.log_error(f"Server TaskGroup error: {e}")
-                    for exc in e.exceptions:
-                        log.log_error(f"Sub-exception: {exc}")
-                        log.log_error(f"Traceback: {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
-                    return
+        """Async server runner with improved resource cleanup and resilience.
 
-            # Handle regular exceptions
-            log.log_error(f"Server serve error: {e}")
-            log.log_error(f"Traceback: {traceback.format_exc()}")
-        finally:
-            # Ensure proper cleanup with sufficient time for stream finalization
+        This method wraps serve() in a loop that continues on recoverable errors
+        (connection errors, ASGI state errors) and only exits on explicit shutdown
+        signal or unrecoverable errors.
+        """
+        import sys
+        import traceback
+
+        while not self.shutdown_signal.is_set():
             try:
-                log.log_debug("Starting SSE server cleanup")
+                await serve(
+                    self.asgi_app,
+                    self.hypercorn_config,
+                    shutdown_trigger=self._shutdown_trigger
+                )
+                # Normal exit from serve() means shutdown was requested
+                break
+            except BaseException as e:
+                # Check for shutdown signal first
+                if self.shutdown_signal.is_set():
+                    log.log_debug("Shutdown signal set, exiting server loop")
+                    break
 
-                # Allow time for all pending connections and streams to close
-                await asyncio.sleep(1.0)
+                # Classify the exception to determine if recoverable
+                is_recoverable = False
+                error_details = []
 
-                log.log_debug("SSE server cleanup completed")
-            except Exception as cleanup_error:
-                log.log_error(f"Error during SSE server cleanup: {cleanup_error}")
+                if sys.version_info >= (3, 11) and isinstance(e, BaseExceptionGroup):
+                    # Handle exception groups (Python 3.11+)
+                    log.log_warn(f"Server TaskGroup error (checking if recoverable): {e}")
+                    all_recoverable = True
+                    for exc in e.exceptions:
+                        error_msg = str(exc)
+                        exc_recoverable = self._is_recoverable_exception(exc, error_msg)
+                        if exc_recoverable:
+                            log.log_debug(f"Recoverable sub-exception: {exc}")
+                        else:
+                            log.log_error(f"Unrecoverable sub-exception: {exc}")
+                            log.log_error(f"Traceback: {''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))}")
+                            all_recoverable = False
+                        error_details.append((exc, exc_recoverable))
+                    is_recoverable = all_recoverable
+                else:
+                    # Handle single exceptions
+                    error_msg = str(e)
+                    is_recoverable = self._is_recoverable_exception(e, error_msg)
+
+                    if is_recoverable:
+                        log.log_debug(f"Recoverable server error: {e}")
+                    else:
+                        log.log_error(f"Server serve error: {e}")
+                        log.log_error(f"Traceback: {traceback.format_exc()}")
+
+                if is_recoverable:
+                    # Brief pause before retry to avoid tight loop
+                    log.log_info("Recoverable error encountered, server continuing...")
+                    await asyncio.sleep(0.1)
+                    continue
+                else:
+                    # Unrecoverable error, exit the loop
+                    log.log_error("Unrecoverable server error, stopping server")
+                    break
+
+        # Final cleanup
+        try:
+            log.log_debug("Starting SSE server cleanup")
+            # Allow time for all pending connections and streams to close
+            await asyncio.sleep(1.0)
+            log.log_debug("SSE server cleanup completed")
+        except Exception as cleanup_error:
+            log.log_error(f"Error during SSE server cleanup: {cleanup_error}")
+
+    def _is_recoverable_exception(self, exc: BaseException, error_msg: str) -> bool:
+        """Determine if an exception is recoverable (server should continue).
+
+        Recoverable exceptions are typically connection-related errors that
+        occur during normal operation when clients disconnect or when
+        handling concurrent requests.
+
+        Args:
+            exc: The exception to check
+            error_msg: String representation of the exception
+
+        Returns:
+            True if the exception is recoverable, False otherwise
+        """
+        # CancelledError is recoverable (client disconnect)
+        if isinstance(exc, asyncio.CancelledError):
+            return True
+
+        # Check for known recoverable error patterns
+        recoverable_patterns = [
+            "connection",
+            "closed",
+            "ASGIHTTPState",
+            "response already",
+            "Unexpected message type",
+            "client disconnect",
+            "broken pipe",
+            "reset by peer",
+            "stream",
+        ]
+
+        error_msg_lower = error_msg.lower()
+        for pattern in recoverable_patterns:
+            if pattern.lower() in error_msg_lower:
+                return True
+
+        return False
             
     async def _shutdown_trigger(self):
         """Wait for shutdown signal"""
@@ -376,14 +499,25 @@ class BinAssistMCPServer:
         }
 
         @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
-        def list_binaries(ctx: Context) -> List[str]:
-            """List all currently loaded binary names
+        def list_binaries(ctx: Context) -> dict:
+            """List all currently loaded binary names with auto-refresh from Binary Ninja
+
+            Automatically synchronizes with Binary Ninja's currently open views before
+            returning the list. This ensures newly opened binaries are included and
+            closed binaries are removed.
 
             Returns:
-                List of binary filenames currently loaded in the MCP server
+                Dictionary containing:
+                - binaries: List of binary filenames currently loaded
+                - sync_status: Sync operation report (added, removed, unchanged counts)
             """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
-            return context_manager.list_binaries()
+            # Sync with Binary Ninja before returning results
+            sync_result = context_manager.sync_with_binja()
+            return {
+                "binaries": context_manager.list_binaries(),
+                "sync_status": sync_result
+            }
 
         @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
         def get_binary_status(filename: str, ctx: Context) -> dict:
