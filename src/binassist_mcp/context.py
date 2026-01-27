@@ -398,82 +398,81 @@ class BinAssistMCPBinaryContextManager:
             # If UI is available, enumerate open views and add new ones
             if ui_available:
                 try:
-                    ctx = UIContext.activeContext()
-                    if ctx is not None:
-                        # Get all available binary views from the UI context
-                        # Try different methods to get open views
-                        open_views = []
+                    # Collect all open binary views from all UI contexts
+                    open_views = []
 
-                        # Method 1: getAvailableBinaryViews (preferred)
-                        if hasattr(ctx, 'getAvailableBinaryViews'):
-                            open_views = ctx.getAvailableBinaryViews()
-                        # Method 2: getAllOpenBinaryViews
-                        elif hasattr(ctx, 'getAllOpenBinaryViews'):
-                            open_views = ctx.getAllOpenBinaryViews()
-                        # Method 3: Iterate through view frames
-                        elif hasattr(ctx, 'viewFrames'):
-                            for frame in ctx.viewFrames():
-                                if hasattr(frame, 'getCurrentBinaryView'):
-                                    bv = frame.getCurrentBinaryView()
-                                    if bv is not None:
+                    # Get all UI contexts (windows)
+                    all_contexts = UIContext.allContexts()
+
+                    for ctx in all_contexts:
+                        if ctx is None:
+                            continue
+
+                        # Use getTabs() to enumerate all open tabs and get their BinaryViews
+                        # Note: getAvailableBinaryViews() returns underlying raw views which
+                        # may not have proper filenames, so we use tab-based enumeration instead
+                        if hasattr(ctx, 'getTabs'):
+                            tabs = ctx.getTabs()
+                            for tab in (tabs or []):
+                                # Each tab has getCurrentBinaryView() method
+                                if hasattr(tab, 'getCurrentBinaryView'):
+                                    bv = tab.getCurrentBinaryView()
+                                    if bv is not None and bv not in open_views:
                                         open_views.append(bv)
 
-                        # Build a set of file paths currently in context for comparison
-                        context_paths = set()
+                    # Build a set of file paths currently in context for comparison
+                    context_paths = set()
+                    for binary_info in self._binaries.values():
+                        if binary_info.file_path:
+                            context_paths.add(str(binary_info.file_path))
+
+                    # Add any open views not already in context
+                    for bv in open_views:
+                        if bv is None:
+                            continue
+
+                        file_path = self._get_file_path(bv)
+                        file_path_str = str(file_path) if file_path else None
+
+                        # Check if this view is already in context (by path)
+                        if file_path_str and file_path_str in context_paths:
+                            continue
+
+                        # Check if view object is already tracked
+                        already_tracked = False
                         for binary_info in self._binaries.values():
-                            if binary_info.file_path:
-                                context_paths.add(str(binary_info.file_path))
+                            if binary_info.view is bv:
+                                already_tracked = True
+                                break
 
-                        # Add any open views not already in context
-                        for bv in open_views:
-                            if bv is None:
-                                continue
+                        if already_tracked:
+                            continue
 
-                            file_path = self._get_file_path(bv)
-                            file_path_str = str(file_path) if file_path else None
+                        # Add this new binary
+                        try:
+                            name = self._extract_name(bv)
+                            sanitized_name = self._sanitize_name(name)
+                            unique_name = self._get_unique_name(sanitized_name)
 
-                            # Check if this view is already in context (by path)
-                            if file_path_str and file_path_str in context_paths:
-                                continue
+                            # Check if we need to evict old binaries
+                            if len(self._binaries) >= self.max_binaries:
+                                self._evict_oldest_binary()
 
-                            # Check if view object is already tracked
-                            already_tracked = False
-                            for binary_info in self._binaries.values():
-                                if binary_info.view is bv:
-                                    already_tracked = True
-                                    break
+                            import time
+                            binary_info = BinaryInfo(
+                                name=unique_name,
+                                view=bv,
+                                file_path=file_path,
+                                load_time=time.time(),
+                                analysis_complete=self._is_analysis_complete(bv)
+                            )
 
-                            if already_tracked:
-                                continue
-
-                            # Add this new binary
-                            try:
-                                name = self._extract_name(bv)
-                                sanitized_name = self._sanitize_name(name)
-                                unique_name = self._get_unique_name(sanitized_name)
-
-                                # Check if we need to evict old binaries
-                                if len(self._binaries) >= self.max_binaries:
-                                    self._evict_oldest_binary()
-
-                                import time
-                                binary_info = BinaryInfo(
-                                    name=unique_name,
-                                    view=bv,
-                                    file_path=file_path,
-                                    load_time=time.time(),
-                                    analysis_complete=self._is_analysis_complete(bv)
-                                )
-
-                                self._binaries[unique_name] = binary_info
-                                result["added"].append(unique_name)
-                                log.log_info(f"Added newly opened binary '{unique_name}' to context")
-                            except Exception as add_error:
-                                log.log_warn(f"Failed to add binary view to context: {add_error}")
-                    else:
-                        log.log_debug("No active UI context available")
+                            self._binaries[unique_name] = binary_info
+                            result["added"].append(unique_name)
+                            log.log_info(f"Added newly opened binary '{unique_name}' to context")
+                        except Exception as add_error:
+                            log.log_warn(f"Failed to add binary view to context: {add_error}")
                 except Exception as ui_error:
-                    log.log_debug(f"Error accessing UI context: {ui_error}")
                     result["error"] = f"UI context error: {ui_error}"
 
             # Record unchanged binaries
@@ -482,6 +481,5 @@ class BinAssistMCPBinaryContextManager:
                     result["unchanged"].append(name)
 
             result["synced"] = True
-            log.log_debug(f"Sync complete: added={len(result['added'])}, removed={len(result['removed'])}, unchanged={len(result['unchanged'])}")
 
         return result
