@@ -511,17 +511,45 @@ class BinAssistMCPTools:
         
     @handle_exceptions
     @require_binja
-    def get_strings(self) -> List[Dict[str, Any]]:
-        """Get strings found in the binary"""
-        strings = []
+    def get_strings(self, page_size: int = 100, page_number: int = 1) -> Dict[str, Any]:
+        """Get strings found in the binary with pagination
+
+        Args:
+            page_size: Number of strings per page (default: 100)
+            page_number: Page number starting from 1 (default: 1)
+
+        Returns:
+            Dictionary containing:
+                - strings: List of string information dictionaries
+                - page_size: The page size used
+                - page_number: The current page number
+                - total_count: Total number of strings
+                - total_pages: Total number of pages
+        """
+        all_strings = []
         for string in self.bv.strings:
-            strings.append({
+            all_strings.append({
                 "value": string.value,
                 "address": hex(string.start),
                 "length": string.length,
                 "type": str(string.type)
             })
-        return strings
+
+        # Calculate pagination
+        total_count = len(all_strings)
+        start_idx = (page_number - 1) * page_size
+        end_idx = start_idx + page_size
+
+        # Get the paginated slice
+        paginated_strings = all_strings[start_idx:end_idx]
+
+        return {
+            "strings": paginated_strings,
+            "page_size": page_size,
+            "page_number": page_number,
+            "total_count": total_count,
+            "total_pages": (total_count + page_size - 1) // page_size if page_size > 0 else 0
+        }
         
     @handle_exceptions
     @require_binja
@@ -2379,15 +2407,23 @@ class BinAssistMCPTools:
 
     @handle_exceptions
     @require_binja
-    def search_strings(self, pattern: str, case_sensitive: bool = False) -> List[Dict[str, Any]]:
-        """Search for strings matching a pattern.
+    def search_strings(self, pattern: str, case_sensitive: bool = False,
+                       page_size: int = 100, page_number: int = 1) -> Dict[str, Any]:
+        """Search for strings matching a pattern with pagination.
 
         Args:
             pattern: Search pattern (substring match)
             case_sensitive: Whether to perform case-sensitive matching
+            page_size: Number of results per page (default: 100)
+            page_number: Page number starting from 1 (default: 1)
 
         Returns:
-            List of matching strings with address, value, and length
+            Dictionary containing:
+                - strings: List of matching strings with address, value, and length
+                - page_size: The page size used
+                - page_number: The current page number
+                - total_count: Total number of matching strings
+                - total_pages: Total number of pages
         """
         results = []
         search_pattern = pattern if case_sensitive else pattern.lower()
@@ -2404,7 +2440,21 @@ class BinAssistMCPTools:
                     "type": str(string.type)
                 })
 
-        return results
+        # Calculate pagination
+        total_count = len(results)
+        start_idx = (page_number - 1) * page_size
+        end_idx = start_idx + page_size
+
+        # Get the paginated slice
+        paginated_results = results[start_idx:end_idx]
+
+        return {
+            "strings": paginated_results,
+            "page_size": page_size,
+            "page_number": page_number,
+            "total_count": total_count,
+            "total_pages": (total_count + page_size - 1) // page_size if page_size > 0 else 0
+        }
 
     @handle_exceptions
     @require_binja

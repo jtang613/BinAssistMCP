@@ -629,19 +629,21 @@ class BinAssistMCPServer:
             return tools.get_exports()
 
         @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
-        def get_strings(filename: str, ctx: Context) -> list:
-            """Get strings found in the binary
+        def get_strings(filename: str, ctx: Context, page_size: int = 100, page_number: int = 1) -> dict:
+            """Get strings found in the binary with pagination
 
             Args:
                 filename: Name of the binary file
+                page_size: Number of strings per page (default: 100)
+                page_number: Page number starting from 1 (default: 1)
 
             Returns:
-                List of strings with value, address, length, and type
+                Dictionary with strings list, page_size, page_number, total_count, and total_pages
             """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
-            return tools.get_strings()
+            return tools.get_strings(page_size=page_size, page_number=page_number)
 
         @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
         def get_segments(filename: str, ctx: Context) -> list:
@@ -1041,21 +1043,25 @@ class BinAssistMCPServer:
 
         @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
         def search_strings(filename: str, pattern: str, ctx: Context,
-                          case_sensitive: bool = False) -> list:
-            """Search for strings matching a pattern.
+                          case_sensitive: bool = False,
+                          page_size: int = 100, page_number: int = 1) -> dict:
+            """Search for strings matching a pattern with pagination.
 
             Args:
                 filename: Name of the binary file
                 pattern: Search pattern (substring match)
                 case_sensitive: Case-sensitive matching
+                page_size: Number of results per page (default: 100)
+                page_number: Page number starting from 1 (default: 1)
 
             Returns:
-                List of matching strings
+                Dictionary with strings list, page_size, page_number, total_count, and total_pages
             """
             context_manager: BinAssistMCPBinaryContextManager = ctx.request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
-            return tools.search_strings(pattern, case_sensitive)
+            return tools.search_strings(pattern, case_sensitive,
+                                        page_size=page_size, page_number=page_number)
 
         @mcp.tool(annotations=READ_ONLY_ANNOTATIONS)
         def search_bytes(filename: str, pattern: str, ctx: Context,
@@ -1215,11 +1221,11 @@ class BinAssistMCPServer:
             
         @mcp.resource("binassist://{filename}/strings")
         def get_strings_resource(filename: str):
-            """Get strings as a resource"""
+            """Get strings as a resource (first 100 strings, use get_strings tool for pagination)"""
             context_manager: BinAssistMCPBinaryContextManager = mcp.get_context().request_context.lifespan_context
             binary_view = context_manager.get_binary(filename)
             tools = BinAssistMCPTools(binary_view)
-            return tools.get_strings()
+            return tools.get_strings(page_size=100, page_number=1)
 
         @mcp.resource("binja://{filename}/info")
         def get_binary_info_resource(filename: str):
