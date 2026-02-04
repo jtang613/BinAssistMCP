@@ -393,14 +393,14 @@ class BinAssistMCPTools:
                     if sym and hasattr(sym, "name"):
                         disasm_text = disasm_text.replace(call_addr_str, sym.name)
                         
-            # Get comment if any
-            comment = self.bv.get_comment_at(addr)
-            
+            # Get comment if any (check both function-level and BV-level)
+            comment = self._get_comment_at(addr)
+
             # Format final line
             line = f"0x{addr:08x}  {disasm_text}"
             if comment:
                 line += f"  ; {comment}"
-                
+
             return line
             
         except Exception as e:
@@ -874,50 +874,124 @@ class BinAssistMCPTools:
         return result
         
     # Comment management tools
+
+    def _set_comment_at(self, addr: int, comment: str) -> None:
+        """Set a comment at an address, using function-level comments when possible.
+
+        If the address is within a function, uses function.set_comment_at() to set
+        a function-level comment. Otherwise, falls back to bv.set_comment_at() for
+        BV-level (address) comments.
+
+        Args:
+            addr: Address to set comment at
+            comment: Comment text (empty string to clear)
+        """
+        funcs = self.bv.get_functions_containing(addr)
+        if funcs:
+            funcs[0].set_comment_at(addr, comment)
+        else:
+            self.bv.set_comment_at(addr, comment)
+
+    def _get_comment_at(self, addr: int) -> Optional[str]:
+        """Get a comment at an address, checking both function and BV-level comments.
+
+        First checks for function-level comments if the address is within a function,
+        then falls back to BV-level (address) comments.
+
+        Args:
+            addr: Address to get comment from
+
+        Returns:
+            Comment text or None if no comment exists
+        """
+        # Check function-level comments first
+        funcs = self.bv.get_functions_containing(addr)
+        if funcs:
+            comment = funcs[0].get_comment_at(addr)
+            if comment:
+                return comment
+        # Fall back to BV-level comments
+        return self.bv.get_comment_at(addr) or None
+
+    def _remove_comment_at(self, addr: int) -> bool:
+        """Remove a comment at an address from both function and BV levels.
+
+        Args:
+            addr: Address to remove comment from
+
+        Returns:
+            True if a comment was removed, False if no comment existed
+        """
+        removed = False
+        # Remove function-level comment if exists
+        funcs = self.bv.get_functions_containing(addr)
+        if funcs:
+            if funcs[0].get_comment_at(addr):
+                funcs[0].set_comment_at(addr, "")
+                removed = True
+        # Also remove BV-level comment if exists
+        if self.bv.get_comment_at(addr):
+            self.bv.set_comment_at(addr, "")
+            removed = True
+        return removed
+
     @handle_exceptions
     @require_binja
     def set_comment(self, address: str, comment: str) -> str:
         """Set a comment at the specified address
-        
+
+        Uses function-level comments when the address is within a function,
+        which is the preferred approach for Binary Ninja.
+
         Args:
             address: Address in hex format
             comment: Comment text
-            
+
         Returns:
             Success message
         """
         addr = self._resolve_symbol(address)
         if addr is None:
             raise ValueError(f"Invalid address: {address}")
-            
-        self.bv.set_comment_at(addr, comment)
+
+        self._set_comment_at(addr, comment)
         return f"Successfully set comment at {hex(addr)}: '{comment}'"
         
     @handle_exceptions
     @require_binja
     def get_comment(self, address: str) -> Optional[str]:
         """Get comment at the specified address
-        
+
+        Checks both function-level and BV-level comments.
+
         Args:
             address: Address in hex format
-            
+
         Returns:
             Comment text or None if no comment exists
         """
         addr = self._resolve_symbol(address)
         if addr is None:
             raise ValueError(f"Invalid address: {address}")
-            
-        return self.bv.get_comment_at(addr)
+
+        return self._get_comment_at(addr)
         
     @handle_exceptions
     @require_binja
     def get_all_comments(self) -> List[Dict[str, Any]]:
-        """Get all comments in the binary"""
+        """Get all comments in the binary
+
+        Collects comments from:
+        - Function-level comments (function.comment)
+        - Function instruction comments (function.get_comment_at)
+        - BV-level address comments (bv.address_comments)
+        """
         comments = []
-        
-        # Get function-level comments
+        seen_addresses = set()
+
+        # Get function-level comments and function instruction comments
         for func in self.bv.functions:
+            # Function description comment
             if func.comment:
                 comments.append({
                     "address": hex(func.start),
@@ -925,13 +999,9 @@ class BinAssistMCPTools:
                     "comment": func.comment,
                     "function_name": func.name
                 })
-                
-        # Get instruction-level comments (this is more complex as we need to iterate through all addresses)
-        # We'll check comments in function ranges to be more efficient
-        for func in self.bv.functions:
-            addr = func.start
-            while addr < func.highest_address:
-                comment = self.bv.get_comment_at(addr)
+
+            # Function instruction comments
+            for addr, comment in func.comments.items():
                 if comment:
                     comments.append({
                         "address": hex(addr),
@@ -939,8 +1009,21 @@ class BinAssistMCPTools:
                         "comment": comment,
                         "function_name": func.name
                     })
-                addr += self.bv.get_instruction_length(addr) or 1
-                
+                    seen_addresses.add(addr)
+
+        # Get BV-level address comments (that weren't already captured as function comments)
+        for addr, comment in self.bv.address_comments.items():
+            if addr not in seen_addresses and comment:
+                # Try to find containing function for context
+                funcs = self.bv.get_functions_containing(addr)
+                func_name = funcs[0].name if funcs else None
+                comments.append({
+                    "address": hex(addr),
+                    "type": "address",
+                    "comment": comment,
+                    "function_name": func_name
+                })
+
         # Sort by address
         comments.sort(key=lambda x: int(x["address"], 16))
         return comments
@@ -949,23 +1032,22 @@ class BinAssistMCPTools:
     @require_binja
     def remove_comment(self, address: str) -> str:
         """Remove comment at the specified address
-        
+
+        Removes comments from both function-level and BV-level storage.
+
         Args:
             address: Address in hex format
-            
+
         Returns:
             Success message
         """
         addr = self._resolve_symbol(address)
         if addr is None:
             raise ValueError(f"Invalid address: {address}")
-            
-        # Check if comment exists
-        existing_comment = self.bv.get_comment_at(addr)
-        if not existing_comment:
+
+        if not self._remove_comment_at(addr):
             return f"No comment found at {hex(addr)}"
-            
-        self.bv.set_comment_at(addr, "")
+
         return f"Successfully removed comment at {hex(addr)}"
         
     @handle_exceptions
@@ -2126,8 +2208,7 @@ class BinAssistMCPTools:
             addr = self._resolve_symbol(address)
             if addr is None:
                 raise ValueError(f"Invalid address: {address}")
-            comment = self.bv.get_comment_at(addr)
-            return comment if comment else None
+            return self._get_comment_at(addr)
 
         elif action == "set":
             if not address or not text:
@@ -2135,28 +2216,11 @@ class BinAssistMCPTools:
             addr = self._resolve_symbol(address)
             if addr is None:
                 raise ValueError(f"Invalid address: {address}")
-            self.bv.set_comment_at(addr, text)
+            self._set_comment_at(addr, text)
             return f"Comment set at {hex(addr)}"
 
         elif action == "list":
-            comments = []
-            # Get address comments
-            for addr, comment in self.bv.address_comments.items():
-                comments.append({
-                    "address": hex(addr),
-                    "comment": comment,
-                    "type": "address"
-                })
-            # Get function comments
-            for func in self.bv.functions:
-                if func.comment:
-                    comments.append({
-                        "address": hex(func.start),
-                        "function": func.name,
-                        "comment": func.comment,
-                        "type": "function"
-                    })
-            return comments
+            return self.get_all_comments()
 
         elif action == "remove":
             if not address:
@@ -2164,7 +2228,8 @@ class BinAssistMCPTools:
             addr = self._resolve_symbol(address)
             if addr is None:
                 raise ValueError(f"Invalid address: {address}")
-            self.bv.set_comment_at(addr, "")
+            if not self._remove_comment_at(addr):
+                return f"No comment found at {hex(addr)}"
             return f"Comment removed at {hex(addr)}"
 
         elif action == "set_function":
